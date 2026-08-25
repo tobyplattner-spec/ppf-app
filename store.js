@@ -24,7 +24,7 @@
 /* Which copy of this file is actually running. Printed on the way-in screen, because
    a browser holding yesterday's copy behind a cache looks exactly like a bug in
    today's, and the two are otherwise impossible to tell apart from a phone. */
-const BUILD = "4";
+const BUILD = "5";
 
 /* ---------- this browser's own shelf ---------- */
 const IDB = {
@@ -42,11 +42,33 @@ const IDB = {
 /* ---------- names and shapes ---------- */
 const DATA_FILE = "farm-data.json";
 const PHOTO_DIR = "photos";
+
+/* ---------- which set of books is open ---------- */
+/* One repository, two sets of records: the farm's own, and a sandbox to poke at where
+   nothing you do matters. They are separate files with separate photograph directories,
+   and everything this browser keeps on their behalf is separate too — what is cached,
+   and above all what is owed. An edit made to one out of range must never be sent home
+   to the other, which is the whole reason the keys below carry the book's name.
+
+   The farm keeps the plain unprefixed keys it has always had, so a phone that has been
+   using this app finds its cache and its unsent edits exactly where it left them. */
+const BOOKS = {
+  farm:    { data: DATA_FILE,          photos: PHOTO_DIR,      label: "Farm records",
+             commit: "Farm records" },
+  sandbox: { data: "sandbox-data.json", photos: "sandbox-photos", label: "Sandbox",
+             commit: "Sandbox" },
+};
+let BOOK = "farm";
+const book      = () => BOOKS[BOOK] || BOOKS.farm;
+const dataFile  = () => book().data;
+const photoDir  = () => book().photos;
+/* The farm's keys are the bare names; anything else is prefixed. */
+const bookKey   = base => BOOK === "farm" ? base : base + ":" + BOOK;
 const PHOTO_MIME = "image/jpeg";   /* "image/webp" here is ~30% smaller at the same quality */
 const PHOTO_EXT = ".jpg";
 
 const photoFile = v => v.id + PHOTO_EXT;
-const photoRef = v => PHOTO_DIR + "/" + photoFile(v);
+const photoRef = v => photoDir() + "/" + photoFile(v);
 const isInline = p => typeof p === "string" && p.startsWith("data:");
 const hasPhotoRef = p => typeof p === "string" && p.length > 0;
 
@@ -211,7 +233,7 @@ const Photos = {
   dir:null, base:null, git:false, urls:new Map(), missing:new Set(), shas:new Map(),
 
   /* Folder mode: the real photos/ directory, which can be written to. */
-  async mount(root){ Photos.base = null; Photos.git = false; Photos.dir = await root.getDirectoryHandle(PHOTO_DIR, {create:true}); },
+  async mount(root){ Photos.base = null; Photos.git = false; Photos.dir = await root.getDirectoryHandle(photoDir(), {create:true}); },
   /* Served mode: photos/ is just a path next to the page. Read only. */
   mountWeb(){ Photos.dir = null; Photos.git = false; Photos.base = new URL("./", location.href).href; },
   /* Repository mode: photos/ is a directory of files reached over the wire, and kept
@@ -278,7 +300,7 @@ const Photos = {
 
   /* This device's own copy of a picture, so that the second opening of the app costs
      nothing and the hundredth works with no signal at all. */
-  cacheKey: v => "photo:" + v.id,
+  cacheKey: v => bookKey("photo") + ":" + v.id,
   async cached(v){ return IDB.get(Photos.cacheKey(v)); },
   async keep(v, blob, sha){ await IDB.set(Photos.cacheKey(v), { blob, sha, path: v.photo, at: Date.now() }); },
   async drop(v){ await IDB.del(Photos.cacheKey(v)); },
@@ -380,8 +402,8 @@ const Photos = {
    one entry because only the latest matters; photographs are one entry each because
    they are separate files and each stands alone. */
 const Outbox = {
-  async read(){ return (await IDB.get("outbox")) || { data:null, photos:{} }; },
-  async write(o){ await IDB.set("outbox", o); },
+  async read(){ return (await IDB.get(bookKey("outbox"))) || { data:null, photos:{} }; },
+  async write(o){ await IDB.set(bookKey("outbox"), o); },
   get empty(){ return Outbox._empty !== false; },
 
   async queueData(text){
@@ -403,7 +425,7 @@ const Outbox = {
     Outbox._empty = n === 0;
     return n;
   },
-  async clear(){ await IDB.set("outbox", { data:null, photos:{} }); Outbox._empty = true; }
+  async clear(){ await IDB.set(bookKey("outbox"), { data:null, photos:{} }); Outbox._empty = true; }
 };
 
 /* ---------- the store ---------- */
@@ -417,6 +439,62 @@ const Store = {
   servedCapable: typeof location !== "undefined" && (location.protocol === "http:" || location.protocol === "https:"),
 
   get ready(){ return Store.mode !== null; },
+
+  /* ---- the two sets of books ---- */
+  get book(){ return BOOK; },
+  get books(){ return BOOKS; },
+  get isSandbox(){ return BOOK === "sandbox"; },
+  bookLabel(){ return book().label; },
+  /* Which one was open last, remembered so the app comes back where you left it. A
+     name this browser does not recognise falls back to the farm rather than to
+     nothing, since the farm is the one that matters. */
+  async loadBook(){
+    const b = await IDB.get("book");
+    BOOK = (b && BOOKS[b]) ? b : "farm";
+    return BOOK;
+  },
+  /* The other book has to actually be reachable to be worth offering. In the repository
+     it is a second file in the same repository; in a farm folder, a second file in the
+     same folder; served, a second file beside the page. A file you handed the app
+     yourself is the only file it has, so there is nothing to change to. */
+  get canSwitchBooks(){
+    return Store.mode === "github" || Store.mode === "folder" || Store.mode === "served";
+  },
+  /* Change books and hand back the other one's records. Whatever the book being left
+     still owes stays owed on its own shelf, and goes home the next time it is open. */
+  async openBook(b){
+    if(!BOOKS[b]) throw new Error("No such set of books: " + b);
+    await Store.setBook(b);
+    if(Store.mode === "served") return Store.openServed();
+    if(Store.mode === "folder"){
+      try{ Store.file = await Store.dir.getFileHandle(dataFile()); }
+      catch(e){ throw new Error("There is no " + dataFile() + " in \u201C" + Store.dir.name + "\u201D"); }
+      Store.label = Store.dir.name + "/" + dataFile();
+      await Photos.mount(Store.dir);
+    }
+    return Store.load();
+  },
+
+  /* Everything Store holds about a file — what it looked like when we last agreed, and
+     whether anything is owed — is about the book that was open, so all of it is dropped
+     rather than carried across. What is owed by the other book is on its own shelf and
+     is still owed; it goes home the next time that book is open. The caller reloads. */
+  async setBook(b){
+    if(!BOOKS[b] || b === BOOK) return BOOK;
+    BOOK = b;
+    await IDB.set("book", b);
+    Store.sha = null;
+    Store.unsent = false;
+    Store.lastSync = null;
+    Store._first = null;
+    Outbox._empty = undefined;
+    if(Store.mode === "github"){ Store.label = Git.label; Photos.mountGit(); }
+    /* Both of these are keyed by cultivar id alone, and the two books can name a
+       cultivar the same thing — so they are emptied rather than reached into. */
+    Photos.clear();
+    Photos.shas.clear();
+    return BOOK;
+  },
   /* Both of these put the edit where it actually belongs rather than parking it. */
   get writesInPlace(){ return Store.mode === "folder" || Store.mode === "github"; },
   get isRepo(){ return Store.mode === "github"; },
@@ -443,12 +521,12 @@ const Store = {
          file. */
       if(about.branch !== Git.cfg.branch) await Git.setConfig({ ...Git.cfg, branch: about.branch });
 
-      got = await Git.getText(DATA_FILE);
+      got = await Git.getText(dataFile());
       if(!got){
         await Git.forgetConfig();
-        throw new GitError(where + " is there, but there is no " + DATA_FILE + " in the root of its " +
+        throw new GitError(where + " is there, but there is no " + dataFile() + " in the root of its " +
           about.branch + " branch. Check the upload committed, and that the name is exactly " +
-          DATA_FILE + ".", 404, "missing");
+          dataFile() + ".", 404, "missing");
       }
     }catch(e){
       await Git.forgetConfig();
@@ -499,32 +577,34 @@ const Store = {
     const p = await d.requestPermission({mode:"readwrite"});
     if(p !== "granted") throw new Error("Permission denied");
     if(!await Store.mountFolder(d))
-      throw new Error("No " + DATA_FILE + " in “" + d.name + "” — choose the folder that holds it");
+      throw new Error("No " + dataFile() + " in “" + d.name + "” — choose the folder that holds it");
     await IDB.set("dir", d);
     return true;
   },
   async mountFolder(d){
     let f;
-    try{ f = await d.getFileHandle(DATA_FILE); }catch(e){ return false; }
+    try{ f = await d.getFileHandle(dataFile()); }catch(e){ return false; }
     Store.dir = d; Store.file = f; Store.mode = "folder";
-    Store.label = d.name + "/" + DATA_FILE;
+    Store.label = d.name + "/" + dataFile();
     Store.unsent = false;
     await Photos.mount(d);
     return true;
   },
   /* What was open last time, whichever way it was opened. */
   async restore(){
+    /* Which book before which file: everything below reads from the one that is open. */
+    await Store.loadBook();
     if(await Store.restoreRepo()) return true;
     return Store.restoreFolder();
   },
 
   /* ---- served: the file is simply next door ---- */
   async openServed(){
-    const r = await fetch(DATA_FILE, {cache:"no-store"});
-    if(!r.ok) throw new Error(DATA_FILE + " not found beside this page");
+    const r = await fetch(dataFile(), {cache:"no-store"});
+    if(!r.ok) throw new Error(dataFile() + " not found beside this page");
     const db = JSON.parse(await r.text());
     Store.mode = "served";
-    Store.label = DATA_FILE;
+    Store.label = dataFile();
     Store.unsent = false;
     Photos.mountWeb();
     return db;
@@ -534,7 +614,7 @@ const Store = {
   async openPicked(file){
     const db = JSON.parse(await file.text());
     Store.mode = "picked";
-    Store.label = file.name || DATA_FILE;
+    Store.label = file.name || dataFile();
     Store.unsent = false;
     Photos.mountNone();
     return db;
@@ -542,14 +622,14 @@ const Store = {
 
   /* ---- what was open last time, kept in this browser ---- */
   async cached(){
-    const c = await IDB.get("cache");
+    const c = await IDB.get(bookKey("cache"));
     if(!c || !c.text) return null;
     return c;
   },
   async openCached(c){
     const db = JSON.parse(c.text);
     Store.mode = c.mode || "picked";
-    Store.label = c.label || DATA_FILE;
+    Store.label = c.label || dataFile();
     Store.unsent = !!c.unsent;
     Store.sha = c.sha || null;
     if(Store.mode === "github"){ await Git.loadConfig(); Photos.mountGit(); }
@@ -566,8 +646,8 @@ const Store = {
       if(Store._first){ text = Store._first; sha = Store.sha; Store._first = null; }
       else{
         try{
-          const got = await Git.getText(DATA_FILE);
-          if(!got) throw new GitError("No " + DATA_FILE + " in " + Git.label, 404, "missing");
+          const got = await Git.getText(dataFile());
+          if(!got) throw new GitError("No " + dataFile() + " in " + Git.label, 404, "missing");
           text = got.text; sha = got.sha;
           Store.lastSync = Date.now();
         }catch(e){
@@ -594,7 +674,7 @@ const Store = {
       await Store.keepLocal(text);
       if(moved){
         await Store.save(db);
-        Store.say(moved + " photograph" + (moved === 1 ? "" : "s") + " lifted into " + PHOTO_DIR + "/");
+        Store.say(moved + " photograph" + (moved === 1 ? "" : "s") + " lifted into " + photoDir() + "/");
       }
       Store.flush().catch(() => {});   /* what is owed goes now, quietly */
       return db;
@@ -606,7 +686,7 @@ const Store = {
     await Photos.loadAll(db);
     if(moved){
       await Store.save(db);
-      Store.say(moved + " photograph" + (moved === 1 ? "" : "s") + " moved into " + PHOTO_DIR + "/");
+      Store.say(moved + " photograph" + (moved === 1 ? "" : "s") + " moved into " + photoDir() + "/");
     }
     return db;
   },
@@ -628,7 +708,7 @@ const Store = {
     if(Store.mode === "github"){
       await Store.keepLocal(text);            /* safe on this device before anything else */
       try{
-        const sha = await Git.put(DATA_FILE, textToB64(text), Store.sha, Store.message(data));
+        const sha = await Git.put(dataFile(), textToB64(text), Store.sha, Store.message(data));
         Store.sha = sha;
         Store.unsent = false;
         Store.lastSync = Date.now();
@@ -654,15 +734,15 @@ const Store = {
 
     /* read-through */
     Store.unsent = true;
-    await IDB.set("cache", { text, at: Date.now(), label: Store.label, mode: Store.mode, unsent: true });
+    await IDB.set(bookKey("cache"), { text, at: Date.now(), label: Store.label, mode: Store.mode, unsent: true });
   },
 
   /* Yours wins. The one being written over is still in the history, so this is a
      choice and not a loss. */
   async forceSave(data){
     const text = JSON.stringify(data, null, 2);
-    const cur = await Git.shaOf(DATA_FILE);
-    const sha = await Git.put(DATA_FILE, textToB64(text), cur, Store.message(data) + " (over a newer copy)");
+    const cur = await Git.shaOf(dataFile());
+    const sha = await Git.put(dataFile(), textToB64(text), cur, Store.message(data) + " (over a newer copy)");
     Store.sha = sha;
     Store.unsent = false;
     Store.lastSync = Date.now();
@@ -671,8 +751,8 @@ const Store = {
   },
   /* Theirs wins: throw this device's version away and take what is on the wire. */
   async reload(){
-    const got = await Git.getText(DATA_FILE);
-    if(!got) throw new GitError("No " + DATA_FILE + " in " + Git.label, 404, "missing");
+    const got = await Git.getText(dataFile());
+    if(!got) throw new GitError("No " + dataFile() + " in " + Git.label, 404, "missing");
     Store.sha = got.sha;
     Store.unsent = false;
     Store.lastSync = Date.now();
@@ -686,12 +766,12 @@ const Store = {
   message(data){
     const n = (data && data.plants ? data.plants.length : 0);
     const when = new Date().toLocaleString("en-US", { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" });
-    return "Farm records — " + when + (n ? " (" + n + " plants)" : "");
+    return book().commit + " — " + when + (n ? " (" + n + " plants)" : "");
   },
   say(msg){ if(typeof window !== "undefined" && typeof window.toast === "function") setTimeout(() => window.toast(msg), 400); },
 
   async keepLocal(text){
-    await IDB.set("cache", { text, at: Date.now(), label: Store.label, mode: Store.mode,
+    await IDB.set(bookKey("cache"), { text, at: Date.now(), label: Store.label, mode: Store.mode,
       unsent: Store.unsent, sha: Store.sha });
   },
 
@@ -726,7 +806,7 @@ const Store = {
 
     if(o.data && o.data.text){
       try{
-        const sha = await Git.put(DATA_FILE, textToB64(o.data.text), Store.sha, Store.message(null) + " (caught up)");
+        const sha = await Git.put(dataFile(), textToB64(o.data.text), Store.sha, Store.message(null) + " (caught up)");
         Store.sha = sha;
         o.data = null;
         Store.unsent = false;
@@ -748,14 +828,14 @@ const Store = {
   async remoteChanged(){
     if(Store.mode !== "github" || isOffline() || Store.unsent) return false;
     try{
-      const sha = await Git.shaOf(DATA_FILE);
+      const sha = await Git.shaOf(dataFile());
       Store.lastSync = Date.now();
       return !!sha && sha !== Store.sha;
     }catch(e){ return false; }
   },
 
   async forget(){
-    await IDB.set("cache", null);
+    await IDB.set(bookKey("cache"), null);
     Store.unsent = false;
   }
 };
@@ -774,9 +854,14 @@ Store.state = () => {
 if(typeof window !== "undefined"){
   window.IDB = IDB; window.Git = Git; window.Photos = Photos; window.Store = Store; window.Outbox = Outbox;
   window.GitError = GitError; window.BUILD = BUILD;
+  /* DATA_FILE and PHOTO_DIR stay the farm's own names, which is what everything
+     outside this file has always meant by them; dataFile() and photoDir() are the
+     open book's. */
   window.DATA_FILE = DATA_FILE; window.PHOTO_DIR = PHOTO_DIR; window.PHOTO_MIME = PHOTO_MIME; window.PHOTO_EXT = PHOTO_EXT;
+  window.BOOKS = BOOKS; window.dataFile = dataFile; window.photoDir = photoDir;
 }
 if(typeof module !== "undefined" && module.exports){
   module.exports = { IDB, Git, Photos, Store, Outbox, GitError, DATA_FILE, PHOTO_DIR, PHOTO_EXT, PHOTO_MIME,
+    BOOKS, dataFile, photoDir,
     photoFile, photoRef, isInline, hasPhotoRef, dataUrlToBlob, blobToDataUrl, b64ToBytes, bytesToB64, textToB64, b64ToText };
 }

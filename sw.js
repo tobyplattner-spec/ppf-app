@@ -4,9 +4,9 @@
    Requests to GitHub are left strictly alone.
 
    Everything lives in one folder, so one worker covers both faces. */
-const CACHE = "ppf-v5";
+const CACHE = "ppf-v6";
 const SHELL = [
-  "./", "./index.html", "./m.html", "./store.js?v=4",
+  "./", "./index.html", "./m.html", "./store.js?v=5",
   "./manifest.webmanifest", "./manifest-phone.webmanifest",
   "./icon-180.png", "./icon-192.png", "./icon-512.png"
 ];
