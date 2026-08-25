@@ -125,17 +125,15 @@ main{flex:1 1 auto;padding:16px var(--pad) calc(var(--tabh) + var(--safe-b) + 26
   border-top:1px solid var(--line);padding-bottom:var(--safe-b);
 }
 .tab{
-  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
-  height:var(--tabh);color:var(--graphite-60);font-size:10px;font-weight:700;
-  letter-spacing:.05em;text-transform:uppercase;
+  flex:1;display:flex;align-items:center;justify-content:center;
+  height:var(--tabh);color:var(--graphite-60);
 }
-.tab svg{width:23px;height:23px;display:block}
-/* The mark is a solid silhouette where the rest are 1.6px line drawings, so it is
-   set a little smaller to carry the same weight — the 1px either side keeps the
-   icon row exactly as tall as it was. */
-.tab .markicon{width:21px;height:21px;margin:1px 0}
-.tab.on{color:var(--rose-dark)}
-.tab.on svg{color:var(--rose)}
+/* No word under the icon, so the icon takes the room the word had. */
+.tab svg{width:26px;height:26px;display:block}
+/* The mark is a solid silhouette where the rest are 1.6px line drawings, so it is set
+   a little smaller to carry the same weight. */
+.tab .markicon{width:24px;height:24px}
+.tab.on{color:var(--rose)}
 .tab:active{background:var(--rose-tint)}
 .tabbar.hide{display:none}
 /* Nothing open yet: no tabs to show, so the page keeps its own foot. */
@@ -463,22 +461,6 @@ body.mapview main{
 .sbbar{height:6px;border:1.5px solid var(--graphite);border-top:none;opacity:.75;transition:width .06s linear}
 .maphud{display:none}
 
-/* The control stack sits where the right thumb already is. */
-.mapctl{
-  position:absolute;right:12px;z-index:5;
-  bottom:calc(var(--trayh,12px) + 12px);
-  display:flex;flex-direction:column;gap:8px;
-}
-.mapbtn{
-  width:46px;height:46px;border-radius:14px;border:1px solid var(--graphite-30);
-  background:rgba(253,249,247,.97);color:var(--graphite);
-  display:flex;align-items:center;justify-content:center;
-  box-shadow:0 2px 10px rgba(58,58,60,.16);font-size:21px;line-height:1;font-weight:700;
-}
-.mapbtn svg{width:21px;height:21px}
-.mapbtn:active{background:var(--rose-tint)}
-.mapbtn.on{background:var(--rose);border-color:var(--rose);color:#fff}
-
 /* The tray of peonies still to place: a rail across the foot of the map. */
 .tray{
   position:absolute;left:0;right:0;bottom:0;z-index:6;
@@ -497,14 +479,20 @@ body.mapview main{
   padding:0 14px;min-height:38px;display:inline-flex;align-items:center;font-size:14px;
   white-space:nowrap;color:var(--graphite);
 }
-.chip.on{background:var(--rose);border-color:var(--rose);color:#fff;font-weight:700}
-/* The banner replaces the tray while a peony is armed, so the next tap is unambiguous. */
-.armbar{display:flex;align-items:center;gap:10px;padding:0 var(--pad)}
-.armbar .txt{flex:1;min-width:0;font-size:13.5px;line-height:1.3}
-.armbar .txt strong{display:block;font-weight:700;font-size:15px}
-
-/* While a peony is armed, the whole map is the target — so the whole map says so. */
-.plot.placing{box-shadow:inset 0 0 0 3px var(--rose)}
+.chip.carrying{opacity:.3}
+/* The rail scrolls sideways under a finger. Anything more upright than that is a peony
+   being lifted out of it onto the map, which the script takes over. */
+.tray .chips{touch-action:pan-x}
+/* What is being planted is aimed a fingertip above the finger, and its name sits above
+   that again — so neither your hand nor the label is over the square it is going into.
+   Grey when there is no free square there to take it. */
+.ghost{
+  position:absolute;z-index:7;pointer-events:none;transform:translate(-50%,-100%);
+  background:var(--rose);color:#fff;border-radius:20px;padding:7px 13px;
+  font-size:13.5px;font-weight:700;white-space:nowrap;
+  box-shadow:0 6px 18px rgba(138,61,76,.4);
+}
+.ghost.nowhere{background:var(--graphite-60);box-shadow:0 6px 18px rgba(58,58,60,.34)}
 
 /* ---------- order lines ---------- */
 /* Five columns of a desktop table will not survive a phone; the same three facts,
@@ -694,8 +682,6 @@ const ICON = {
   back:`<svg viewBox="0 0 8 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 1L1 7l6 6"/></svg>`,
   plus:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>`,
   camera:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5h3.6L8.2 6h7.6l1.6 2.5H21v11H3z"/><circle cx="12" cy="13.6" r="3.4"/></svg>`,
-  move:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18M3 12h18M12 3 9.6 5.6M12 3l2.4 2.6M12 21l-2.4-2.6M12 21l2.4-2.6M3 12l2.6-2.4M3 12l2.6 2.4M21 12l-2.6-2.4M21 12l-2.6 2.4"/></svg>`,
-  fit:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3.8H3.8V9M15 3.8h5.2V9M9 20.2H3.8V15M15 20.2h5.2V15"/></svg>`,
 };
 
 /* Every panel in this edition is the same shape: a handle that says it can be pulled
@@ -1038,7 +1024,8 @@ function paintNav(){
   /* A plant belongs to its cultivar, so the Plants tab stays lit while one is open. */
   const at = h.startsWith("#/plant/") ? "#/collection" : h;
   nav.innerHTML = ROUTES.map(([href,label,icon]) =>
-    `<a class="tab ${at.startsWith(href) ? "on" : ""}" href="${href}">${tabIcon(icon)}<span>${label}</span></a>`).join("");
+    `<a class="tab ${at.startsWith(href) ? "on" : ""}" href="${href}" aria-label="${label}"${
+      at.startsWith(href) ? ' aria-current="page"' : ""}>${tabIcon(icon)}</a>`).join("");
 }
 /* Bloom wears the farm's own mark instead of a drawn flower — the thing being recorded
    is a peony, and there is already one in the header. Borrowed from there rather than
@@ -1106,7 +1093,6 @@ window.addEventListener("hashchange", () => {
   if(!location.hash.startsWith("#/collection/")){ photoFor = null; draftCrop = null; }
   if(!location.hash.startsWith("#/ledger")){ openTxn = null; armDelete = armPlant = false; }
   if(!location.hash.startsWith("#/bloom")) discardBloomDraft();
-  if(!location.hash.startsWith("#/map")) disarmPlacing();
   /* A screen you have just arrived at should be at the top of itself. */
   window.scrollTo(0, 0);
   render();
@@ -1491,7 +1477,6 @@ const COLOR_FAMILY = {
 const FAMILY_ORDER = ["White","Cream","Blush","Pink","Magenta","Coral","Red","Purple","Lavender","Yellow"];
 const families = c => [...new Set(String(c || "").toLowerCase().split(/[^a-z]+/).filter(Boolean)
   .map(w => COLOR_FAMILY[w]).filter(Boolean))];
-const familiesInUse = () => FAMILY_ORDER.filter(f => DB.cultivars.some(v => families(v.color).includes(f)));
 
 /* ---------- the face of a cultivar ---------- */
 /* Until there is a photograph of your own bloom, the circle draws one from what you have
@@ -1824,7 +1809,7 @@ function deleteCultivar(id){
   return true;
 }
 /* ---------- collection: cultivars -> plants -> one plant ---------- */
-let colSort = {key:"name", dir:1}, colFilter = {q:"", color:"", season:""};
+let colSort = {key:"name", dir:1}, colFilter = {q:""};
 
 /* `byCv` is plants already grouped by cultivar, for a caller building many rows at
    once — one sweep of the plant list instead of one per cultivar. Left out, the row
@@ -1915,15 +1900,6 @@ function kv(k, val, raw){
   return `<div class="kvrow"><dt>${k}</dt><dd class="${has ? "" : "muted"}">${
     has ? (raw ? val : esc(val)) : "&mdash;"}</dd></div>`;
 }
-/* A rail of one-tap filters. Only drawn when there is actually a choice to make. */
-function chipRail(id, all, current, options){
-  if(options.length < 2) return "";
-  return `<div class="chips section" style="margin-top:10px">
-    <button class="fchip ${current ? "" : "on"}" data-${id}="">${all}</button>
-    ${options.map(o => `<button class="fchip ${current === o ? "on" : ""}" data-${id}="${esc(o)}">${esc(o)}</button>`).join("")}
-  </div>`;
-}
-
 /* ---------- level 1: the cultivars ---------- */
 function renderCollection(app){
   const cols = [["name","Cultivar"],["season","Season"],["type","Form"],["color","Color"],["plants","Plants"]];
@@ -1931,13 +1907,10 @@ function renderCollection(app){
   for(const p of DB.plants){ let a = byCv.get(p.cultivarId); if(!a) byCv.set(p.cultivarId, a = []); a.push(p); }
   const all = DB.cultivars.map(v => cultivarRow(v, byCv));
   const rows = sortRows(all.filter(r =>
-    (!colFilter.q || (r.name + " " + r.color + " " + r.season + " " + r.type).toLowerCase().includes(colFilter.q.toLowerCase())) &&
-    (!colFilter.season || r.season === colFilter.season) &&
-    (!colFilter.color || families(r.color).includes(colFilter.color))
+    !colFilter.q || (r.name + " " + r.color + " " + r.season + " " + r.type).toLowerCase().includes(colFilter.q.toLowerCase())
   ), cols);
   const owned = all.filter(r => r.plants > 0).length;
   const plants = all.reduce((s,r) => s + r.plants, 0);
-  const seasons = SEASONS.filter(s => DB.cultivars.some(v => v.bloomSeason === s));
 
   app.innerHTML = `
   ${screenHead("Collection", `<span class="num">${owned}</span> cultivar${owned === 1 ? "" : "s"} ·
@@ -1945,8 +1918,6 @@ function renderCollection(app){
       ? ` · <span class="num">${all.length - owned}</span> not owned yet` : ""}`)}
 
   <input id="q" type="search" placeholder="Search name, color, season or form" value="${esc(colFilter.q)}">
-  ${chipRail("fc", "Any color", colFilter.color, familiesInUse())}
-  ${chipRail("fb", "Any season", colFilter.season, seasons)}
 
   <div class="section">${sortBar(cols)}</div>
 
@@ -1958,7 +1929,7 @@ function renderCollection(app){
       meta: [r.color, r.season, r.type].filter(Boolean).map(esc).join(" · ") || "nothing recorded yet",
       trail: `<span class="countpill ${r.plants ? "" : "zero"}">${
         r.plants || (r.gone ? "none left" : "none")}</span>`,
-    })).join("") : `<div class="emptyrow">Nothing matches those filters.</div>`}
+    })).join("") : `<div class="emptyrow">Nothing matches that search.</div>`}
   </div>
   <p class="small muted section">Open a cultivar to edit what it is and see its individual plants.</p>
   ${fab("addCultivar", "Add a cultivar")}`;
@@ -1975,8 +1946,6 @@ function renderCollection(app){
       const q = $("#q"); if(q){ q.focus(); try{ q.setSelectionRange(pos, pos); }catch(err){} }
     }, 160);
   };
-  app.querySelectorAll("[data-fc]").forEach(b => b.onclick = () => { colFilter.color = b.dataset.fc; render(); });
-  app.querySelectorAll("[data-fb]").forEach(b => b.onclick = () => { colFilter.season = b.dataset.fb; render(); });
   wireSortBar();
   $("#addCultivar").onclick = () => {
     draftCultivar = blankCultivar();
@@ -3355,22 +3324,11 @@ function fitView(){
   view = { x: restingX(w), y: 0, w };
   view.y = (P.depthFt - viewH())/2;
 }
-/* Five hundred feet of property on a four-inch screen is two pixels a square, which is
-   a picture rather than a tool. So the map opens on the peonies — the rectangle they
-   actually occupy, with room around it — and the fit button is there for the rest. */
-function homeView(){
-  const ps = mapped();
-  computeFitW();
-  if(!ps.length) return fitView();
-  const xs = ps.map(p => p.x), ys = ps.map(p => p.y);
-  const x0 = Math.min(...xs), x1 = Math.max(...xs);
-  const y0 = Math.min(...ys), y1 = Math.max(...ys);
-  const pad = Math.max(14, (x1 - x0) * 0.3, (y1 - y0) * 0.3);
-  const w = Math.min(fitW, Math.max(30, (x1 - x0) + pad*2, ((y1 - y0) + pad*2) * (plotAR || mapAR())));
-  view = { x: (x0 + x1)/2 - w/2, y: 0, w };
-  view.y = (y0 + y1)/2 - viewH()/2;
-  clampView();
-}
+/* The map rests on the whole property. It used to open on the rectangle the peonies
+   occupy, which is more pixels a square but drops you somewhere on five hundred feet
+   of ground with nothing around it to say where — and pinching in from the whole is
+   one gesture, where finding your way out of a close view is several. */
+function homeView(){ fitView(); }
 /* Zoom about a fixed point, so whatever is under the fingers stays under them. */
 function zoomAt(f, cx, cy){
   const w0 = view.w, lim = fitW || computeFitW();
@@ -3383,7 +3341,6 @@ function zoomAt(f, cx, cy){
   view.y = cy - (cy - view.y) * k;
   clampView();
 }
-function zoomBy(f){ zoomAt(f, view.x + view.w/2, view.y + viewH()/2); }
 /* Once the whole map fits across the pane there is nothing left to pan to, so it is
    parked in its resting place rather than left wherever a zoom happened to end. */
 function clampView(){
@@ -3438,13 +3395,12 @@ function syncPlotAR(){
 }
 
 /* ---------- placing and moving, by thumb ---------- */
-/* Dragging a name out of a list and onto a map is a mouse gesture; on a phone it means
-   covering the target with your own hand. So placing is two taps instead: the peony,
-   then the square. Moving one that is already down is behind its own button, so an
-   accidental brush across the map can never shift a plant that has been growing for
-   three years. */
-let armedPlant = null, moveMode = false;
-function disarmPlacing(){ armedPlant = null; }
+/* One rule for both: put a finger on a peony and drag it where it goes, whether it is
+   already on the map or still in the tray. Nothing is armed and nothing is behind a
+   button. What keeps three years of growth from moving under a careless thumb is the
+   distance the finger has to travel before a tap becomes a drag, and the fact that
+   what is carried rides above the fingertip so you can see the square you are aiming
+   at rather than covering it with your own hand. */
 
 function renderMap(app){
   const P = DB.property;
@@ -3455,38 +3411,33 @@ function renderMap(app){
      dot; the number and the name appear once the cell is big enough to carry them. */
   const pxPerFt = (plotW || 390) / view.w;
   const cellPx  = CELL() * pxPerFt;
-  const R       = CELL() * 0.38;
-  const hitR    = Math.max(R, 15 / pxPerFt);   // a fingertip is about 15px across, not one
   const px      = n => n / pxPerFt;            // n screen pixels, expressed in feet
+  /* Never smaller than a dot the eye can find: at the whole property 0.38 of a cell
+     comes out under a pixel across, and a scatter of those is an empty map. Held to a
+     floor they run together where the peonies are dense, which is the truth of it. */
+  const R       = Math.max(CELL() * 0.38, px(3.4));
+  const hitR    = Math.max(R, 15 / pxPerFt);   // a fingertip is about 15px across, not one
   const showNames = cellPx >= 30;              // a bare dot until the square can carry a label
-  const armed = armedPlant === null ? null : DB.plants.find(p => p.id === armedPlant);
+  const hint = "tap to open · drag to move · pinch to zoom";
 
-  const hint = armed ? "Tap a square to put it there"
-    : moveMode ? "Drag a peony to move it · tap Move again when you are done"
-    : "Tap a peony to open it · pinch to zoom";
-
-  const tray = armed
-    ? `<div class="tray" id="tray"><div class="armbar">
-        <span class="txt"><strong>${esc(cultivar(armed.cultivarId).name || "Plant " + armed.id)}</strong>
-          <span class="muted">Tap the map where it should go</span></span>
-        <button class="btn sm" id="mCancelPlace">Cancel</button>
-      </div></div>`
-    : un.length
-      ? `<div class="tray" id="tray">
-          <div class="tlabel"><span>To place</span><span class="num">${un.length}</span></div>
-          <div class="chips">${un.map(p => `<button class="chip" data-place="${p.id}">${
-            esc(cultivar(p.cultivarId).name || "Plant " + p.id)}</button>`).join("")}</div>
-        </div>`
-      : "";
+  const tray = un.length
+    ? `<div class="tray" id="tray">
+        <div class="tlabel"><span>To place — drag one onto the map</span><span class="num">${un.length}</span></div>
+        <div class="chips">${un.map(p => `<button class="chip" data-place="${p.id}">${
+          esc(cultivar(p.cultivarId).name || "Plant " + p.id)}</button>`).join("")}</div>
+      </div>`
+    : "";
 
   app.innerHTML = `
   <div class="mapwrap">
-    <div class="plot${armed ? " placing" : ""}" id="plot">
+    <div class="plot" id="plot">
       <svg id="svg" viewBox="${view.x} ${view.y} ${view.w} ${h}" preserveAspectRatio="xMidYMid meet">
         ${baseMapFor(view.w, h)}
         ${cellPx >= 7 ? mapped().map(p=>`<rect data-cell="${p.id}" x="${cellX(p)*CELL()}" y="${cellY(p)*CELL()}"
            width="${CELL()}" height="${CELL()}" fill="#C25A6D" fill-opacity=".10"
            stroke="#C25A6D" stroke-width="${px(0.8)}" opacity=".55"/>`).join("") : ""}
+        <rect id="ghostCell" x="0" y="0" width="0" height="0" fill="#C25A6D" fill-opacity=".2"
+              stroke="#C25A6D" stroke-width="${px(2.2)}" opacity="0" pointer-events="none"/>
         ${mapped().map(p => { const v = cultivar(p.cultivarId);
           return `<g class="pin" data-pin="${p.id}"><title>${esc(v.name)}</title>
             <circle cx="${p.x}" cy="${p.y}" r="${hitR}" fill="transparent"/>
@@ -3507,13 +3458,6 @@ function renderMap(app){
       </div>
       <div class="compass">${compassSvg(48)}</div>
       <div class="scalebar"><span id="sbText"></span><div class="sbbar" id="sbBar"></div></div>
-
-      <div class="mapctl">
-        <button class="mapbtn" id="mIn" aria-label="Zoom in">+</button>
-        <button class="mapbtn" id="mOut" aria-label="Zoom out">&minus;</button>
-        <button class="mapbtn" id="mFit" aria-label="Show the whole property">${ICON.fit}</button>
-        <button class="mapbtn ${moveMode ? "on" : ""}" id="mMove" aria-label="Move peonies">${ICON.move}</button>
-      </div>
 
       ${tray}
     </div>
@@ -3574,7 +3518,10 @@ function wireMap(){
      under you mid-gesture. */
   const pts = new Map();
   let mode = null, pan = null, pinch = null, drag = null;
-  let downPin = null, moved = false, lastTap = 0;
+  let downPin = null, down = null, moved = false, lastTap = 0;
+  /* How far a finger has to travel before it is moving a peony rather than tapping
+     one. Below this a graze across the map leaves everything where it was. */
+  const DRAG_MIN = 7;
   let settleT = null;
   /* Markers are drawn at a size that depends on the zoom, so once the fingers are off
      the map is redrawn properly. During the gesture only the viewBox moves. */
@@ -3617,20 +3564,9 @@ function wireMap(){
     markDirty(); render();
   }
 
-  function place(ev){
-    const p = byId.get(armedPlant);
-    if(!p){ armedPlant = null; return render(); }
-    const c = toFt(ev), t = snapFree(c.x, c.y, p.id);
-    if(!t) return toast("No free square there");
-    p.x = t.x; p.y = t.y;
-    armedPlant = null;
-    markDirty(); render();
-    toast(`${cultivar(p.cultivarId).name || "Plant " + p.id} placed at ${t.x}, ${t.y} ft`);
-  }
-
   plot.addEventListener("pointerdown", e => {
-    /* The tray and the buttons sit inside the plot, so they get first refusal. */
-    if(e.target.closest(".tray") || e.target.closest(".mapctl")) return;
+    /* The tray sits inside the plot, so it gets first refusal. */
+    if(e.target.closest(".tray")) return;
     e.preventDefault();
     plot.setPointerCapture(e.pointerId);
     pts.set(e.pointerId, { x:e.clientX, y:e.clientY });
@@ -3640,7 +3576,10 @@ function wireMap(){
     if(pts.size === 1){
       moved = false;
       downPin = e.target.closest("[data-pin]");
-      if(moveMode && downPin && armedPlant === null && startDrag(downPin, e)){ mode = "drag"; return; }
+      down = { x:e.clientX, y:e.clientY, clientX:e.clientX, clientY:e.clientY, pointerId:e.pointerId };
+      /* A finger on a peony is held open: a tap once it lifts, a move once it travels.
+         Which it turns out to be is not decided here. */
+      if(downPin){ mode = "pin"; return; }
       mode = "pan";
       pan = { x0:view.x, y0:view.y, sx:e.clientX, sy:e.clientY,
               ftPerPx: view.w / plot.getBoundingClientRect().width };
@@ -3656,9 +3595,20 @@ function wireMap(){
   plot.addEventListener("pointermove", e => {
     if(!pts.has(e.pointerId)) return;
     pts.set(e.pointerId, { x:e.clientX, y:e.clientY });
-    if(Math.abs(e.clientX - (pan ? pan.sx : e.clientX)) + Math.abs(e.clientY - (pan ? pan.sy : e.clientY)) > 8) moved = true;
+    if(down && Math.abs(e.clientX - down.x) + Math.abs(e.clientY - down.y) > 8) moved = true;
 
     if(mode === "drag"){ if(e.pointerId === drag.id) moveDrag(e); return; }
+
+    /* Far enough to mean it: the peony comes with the finger. The drag is measured from
+       where the finger first landed, not from here, so the marker does not jump out
+       from under it as it starts. */
+    if(mode === "pin"){
+      if(e.pointerId !== down.pointerId) return;
+      if(Math.abs(e.clientX - down.x) + Math.abs(e.clientY - down.y) <= DRAG_MIN) return;
+      if(startDrag(downPin, down)){ mode = "drag"; moved = true; moveDrag(e); }
+      else mode = null;
+      return;
+    }
 
     if(mode === "pinch" && pts.size >= 2){
       const [a,b] = [...pts.values()];
@@ -3704,12 +3654,17 @@ function wireMap(){
       }
       mode = null; settle(); return;
     }
+    /* Down on a peony and never travelled: a tap, and a tap opens it. */
+    if(mode === "pin" && pts.size === 0){
+      mode = null;
+      if(downPin){ openPlant = Number(downPin.dataset.pin); return render(); }
+      return;
+    }
     if(mode === "pan" && pts.size === 0){
       mode = null;
       if(moved){ settle(); return; }
-      /* A tap. What it means depends on what the map is waiting for. */
-      if(armedPlant !== null) return place(e);
-      if(downPin){ openPlant = Number(downPin.dataset.pin); return render(); }
+      /* A tap on bare ground. Twice over is the way in now that the buttons are gone;
+         spreading two fingers is the way back out. */
       const now = Date.now();
       if(now - lastTap < 320){ lastTap = 0; const c = toFt(e); zoomAt(0.55, c.x, c.y); return render(); }
       lastTap = now;
@@ -3735,20 +3690,81 @@ function wireMap(){
     applyView(); paintScale(); settle();
   }, {passive:false});
 
-  /* ---- the controls ---- */
-  $("#mIn").onclick  = () => { zoomBy(0.6); render(); };
-  $("#mOut").onclick = () => { zoomBy(1/0.6); render(); };
-  $("#mFit").onclick = () => { userMoved = true; fitView(); render(); };
-  $("#mMove").onclick = () => { moveMode = !moveMode; armedPlant = null; render();
-    toast(moveMode ? "Drag a peony to move it" : "Moving off"); };
+  /* ---- planting one out of the tray ---- */
+  /* The rail scrolls sideways and a peony lifts out of it upwards, so the two gestures
+     never argue over the same finger. Nothing is written until the finger lifts. */
+  const CARRY_UP = 34;                 // how far above the fingertip the peony rides, in px
+  const ghostCell = svg.querySelector("#ghostCell");
+  let carry = null;
 
-  const cancel = $("#mCancelPlace");
-  if(cancel) cancel.onclick = () => { armedPlant = null; render(); };
+  /* The square it would land in, shown on the map itself rather than under the hand. */
+  function paintCell(t){
+    if(!ghostCell) return;
+    if(!t){ ghostCell.setAttribute("opacity", "0"); return; }
+    ghostCell.setAttribute("x", t.x - CELL()/2);
+    ghostCell.setAttribute("y", t.y - CELL()/2);
+    ghostCell.setAttribute("width", CELL());
+    ghostCell.setAttribute("height", CELL());
+    ghostCell.setAttribute("opacity", "1");
+  }
+  function carryTo(e){
+    const r = plot.getBoundingClientRect();
+    const at = { clientX: e.clientX, clientY: e.clientY - CARRY_UP };
+    carry.ghost.style.left = (at.clientX - r.left) + "px";
+    carry.ghost.style.top  = (at.clientY - r.top - 12) + "px";
+    const c = toFt(at);
+    carry.at = snapFree(c.x, c.y, carry.p.id);
+    carry.ghost.classList.toggle("nowhere", !carry.at);
+    paintCell(carry.at);
+  }
+  function startCarry(chip, e){
+    const p = byId.get(Number(chip.dataset.place));
+    if(!p) return;
+    const ghost = document.createElement("div");
+    ghost.className = "ghost";
+    ghost.textContent = cultivar(p.cultivarId).name || "Plant " + p.id;
+    plot.appendChild(ghost);
+    chip.classList.add("carrying");
+    chip.setPointerCapture(e.pointerId);
+    carry = { p, chip, ghost, id:e.pointerId, at:null };
+    setDragging(true);
+    carryTo(e);
+  }
+  function endCarry(drop){
+    const c = carry; carry = null; setDragging(false);
+    if(!c) return;
+    c.ghost.remove(); c.chip.classList.remove("carrying"); paintCell(null);
+    if(!drop) return;
+    if(!c.at) return toast("No free square there");
+    c.p.x = c.at.x; c.p.y = c.at.y;
+    markDirty(); render();
+    toast(`${cultivar(c.p.cultivarId).name || "Plant " + c.p.id} placed at ${c.at.x}, ${c.at.y} ft`);
+  }
 
-  document.querySelectorAll("[data-place]").forEach(el => el.onclick = () => {
-    armedPlant = Number(el.dataset.place);
-    moveMode = false;
-    render();
+  document.querySelectorAll("[data-place]").forEach(chip => {
+    let from = null;
+    chip.addEventListener("pointerdown", e => {
+      from = { x:e.clientX, y:e.clientY, id:e.pointerId };
+    });
+    chip.addEventListener("pointermove", e => {
+      if(carry){ if(e.pointerId === carry.id){ e.preventDefault(); carryTo(e); } return; }
+      if(!from || e.pointerId !== from.id) return;
+      /* Sideways is the rail scrolling under the finger; upwards is a peony coming out
+         of it. The browser keeps the one it is entitled to and sends the rest here. */
+      const dx = e.clientX - from.x, dy = e.clientY - from.y;
+      if(dy < -10 && Math.abs(dy) > Math.abs(dx)){ e.preventDefault(); startCarry(chip, e); }
+    });
+    chip.addEventListener("pointerup", e => {
+      if(carry && e.pointerId === carry.id) endCarry(true);
+      else if(from && e.pointerId === from.id
+              && Math.abs(e.clientX - from.x) + Math.abs(e.clientY - from.y) < 8)
+        toast("Drag it up onto the map");
+      from = null;
+    });
+    chip.addEventListener("pointercancel", e => {
+      if(carry && e.pointerId === carry.id) endCarry(false);
+      from = null;
+    });
   });
 }
 
@@ -3783,7 +3799,6 @@ document.addEventListener("keydown", e => {
   if(photoFor !== null){ photoFor = null; draftCrop = null; return render(); }
   if(draftDivide){ discardDivide(); return render(); }
   if(armDividePlant){ armDividePlant = false; return render(); }
-  if(armedPlant !== null){ armedPlant = null; return render(); }
   if(openPlant !== null){
     const p = findPlant(openPlant), cid = p && p.cultivarId;
     const onMap = location.hash.startsWith("#/map");
