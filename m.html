@@ -287,7 +287,10 @@ label{display:block;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-t
 /* A horizontal rail that bleeds to both screen edges, so it plainly scrolls. */
 .chips{
   display:flex;gap:8px;overflow-x:auto;overflow-y:hidden;
-  padding:2px var(--pad);margin:0 calc(var(--pad) * -1);
+  padding:2px var(--pad);
+  /* Bleeds to both edges, but only sideways: a margin shorthand here would overrule the
+     top margin of a .section and pin the rail to whatever sits above it. */
+  margin-left:calc(var(--pad) * -1);margin-right:calc(var(--pad) * -1);
   scrollbar-width:none;-webkit-overflow-scrolling:touch;
 }
 .chips::-webkit-scrollbar{display:none}
@@ -2697,15 +2700,39 @@ function wireBloomSheet(app){
   paintBloom();
 }
 /* ---------- ledger ---------- */
-/* An open-ended range: either end can be left empty. Dates are ISO strings, so a
-   plain string comparison is a date comparison. A transaction with no date at all
-   sits outside any range rather than drifting to one end of it. */
-let ledFrom = "", ledTo = "";
-const inLedRange = x => {
-  if(!ledFrom && !ledTo) return true;
-  if(!x.date) return false;
-  return (!ledFrom || x.date >= ledFrom) && (!ledTo || x.date <= ledTo);
-};
+/* A ledger is read in a few habitual ways — all of it, what has just gone out, or one
+   season at a time — so those are one tap each and the two date boxes are kept for the
+   rest. The seasons are read off the transactions themselves, so the list is however
+   many years the farm has actually been keeping books.
+
+   An open-ended range: either end can be left empty. Dates are ISO strings, so a plain
+   string comparison is a date comparison. A transaction with no date at all sits
+   outside any range rather than drifting to one end of it. */
+let ledRange = "all", ledFrom = "", ledTo = "";
+const ledYears = () => [...new Set(DB.transactions.map(t => (t.date || "").slice(0,4))
+  .filter(Boolean))].sort().reverse();
+function ledBounds(){
+  if(ledRange === "custom") return [ledFrom, ledTo];
+  if(ledRange === "d30"){
+    const d = new Date(); d.setDate(d.getDate() - 29);
+    return [d.toISOString().slice(0,10), ""];
+  }
+  if(/^\d{4}$/.test(ledRange)) return [ledRange + "-01-01", ledRange + "-12-31"];
+  return ["", ""];
+}
+const inBounds = (x, f, t) =>
+  (!f && !t) ? true : !x.date ? false : (!f || x.date >= f) && (!t || x.date <= t);
+/* Said the way you would say it out loud, and only saying what the lit chip does not
+   already say — a year chip has the year on it, so repeating Jan 1 to Dec 31 back is
+   noise. A range with one open end is not a pair of dates and is not shown as one. */
+function ledWords(f, t){
+  if(/^\d{4}$/.test(ledRange)) return `all of ${ledRange}`;
+  if(ledRange === "d30") return `${fmtDate(f)} onwards`;
+  return !f && !t ? "every transaction"
+    : f && t ? `${fmtDate(f)} to ${fmtDate(t)}`
+    : f ? `${fmtDate(f)} onwards`
+    : `up to ${fmtDate(t)}`;
+}
 /* ---------- looking back at a transaction ---------- */
 /* Read-only on purpose. A saved plant order is the record of what the plants cost,
    and those plants have positions and histories hanging off it; correcting one
@@ -2753,19 +2780,17 @@ function txnKindOf(x){
 
 /* The range lives behind a chip rather than on the screen: most visits want everything,
    and two date fields sitting open would cost a third of a phone screen to say so. */
-let ledOpen = false;
-
 function renderLedger(app){
   const all = DB.transactions;
-  const list = all.filter(inLedRange).slice().sort((a,b)=> (b.date||"").localeCompare(a.date||""));
+  const [lf, lt] = ledBounds();
+  const list = all.filter(x => inBounds(x, lf, lt)).slice().sort((a,b)=> (b.date||"").localeCompare(a.date||""));
   const t = totals(list);
-  const ranged = !!(ledFrom || ledTo);
+  const ranged = !!(lf || lt);
   const spent = list.filter(x => x.direction !== "income").length;
 
   app.innerHTML = `
   ${screenHead("Ledger", ranged
-    ? `Showing <span class="num">${list.length}</span> of <span class="num">${all.length}</span> ·
-       the figures follow the range`
+    ? `<span class="num">${list.length}</span> of <span class="num">${all.length}</span> transactions`
     : `<span class="num">${all.length}</span> transaction${all.length === 1 ? "" : "s"}`)}
 
   <div class="mstats">
@@ -2776,16 +2801,21 @@ function renderLedger(app){
   </div>
 
   <div class="chips section">
-    <button class="fchip ${ranged || ledOpen ? "on" : ""}" id="lToggle">${
-      ranged ? `${ledFrom ? fmtDate(ledFrom) : "the start"} – ${ledTo ? fmtDate(ledTo) : "now"}` : "Any date"}</button>
-    ${ranged ? `<button class="fchip" id="lclear">Clear</button>` : ""}
+    <button class="fchip ${ledRange === "all" ? "on" : ""}" data-lr="all">All</button>
+    <button class="fchip ${ledRange === "d30" ? "on" : ""}" data-lr="d30">Last 30 days</button>
+    ${ledYears().map(y => `<button class="fchip ${ledRange === y ? "on" : ""}" data-lr="${y}">${y}</button>`).join("")}
+    <button class="fchip ${ledRange === "custom" ? "on" : ""}" data-lr="custom">Custom</button>
   </div>
-  ${ledOpen || ranged ? `<div class="card section">
+  ${ledRange === "custom" ? `<div class="card section">
     <div class="fieldrow pair" style="margin:0">
-      ${field("From", `<input type="date" required id="lfrom" value="${ledFrom}">`)}
-      ${field("To", `<input type="date" required id="lto" value="${ledTo}">`)}
+      ${field("From", `<input type="date" id="lfrom" value="${ledFrom}">`)}
+      ${field("To", `<input type="date" id="lto" value="${ledTo}">`)}
     </div>
+    <p class="small muted" style="margin:10px 0 0">Either end can be left empty — from a date
+      onwards, or everything up to one.</p>
   </div>` : ""}
+  ${ranged ? `<p class="small muted" style="margin:10px 0 0">${ledWords(lf, lt)} — the figures
+    above follow the range.</p>` : ""}
 
   <div class="card flush section">${list.length ? list.map(x => {
     const b = txBalance(x);
@@ -2814,10 +2844,14 @@ function renderLedger(app){
   if(draftTxn) app.insertAdjacentHTML("beforeend", txnSheet());
   else if(open) app.insertAdjacentHTML("beforeend", txnView(open));
 
-  $("#lToggle").onclick = () => { ledOpen = !ledOpen; render(); };
-  const lf = $("#lfrom"); if(lf) lf.onchange = e => { ledFrom = e.target.value; render(); };
-  const lt = $("#lto");   if(lt) lt.onchange = e => { ledTo   = e.target.value; render(); };
-  const lc = $("#lclear"); if(lc) lc.onclick = () => { ledFrom = ledTo = ""; ledOpen = false; render(); };
+  app.querySelectorAll("[data-lr]").forEach(el => el.onclick = () => {
+    ledRange = el.dataset.lr;
+    /* Coming back to Custom with nothing in the boxes shows everything, which is what
+       the empty boxes honestly mean — the chip is lit so it is clear why. */
+    render();
+  });
+  const lfEl = $("#lfrom"); if(lfEl) lfEl.onchange = e => { ledFrom = e.target.value; render(); };
+  const ltEl = $("#lto");   if(ltEl) ltEl.onchange = e => { ledTo   = e.target.value; render(); };
   $("#addTxn").onclick = () => { draftTxn = blankTxn("order"); render(); };
   app.querySelectorAll("[data-tx]").forEach(el => el.onclick = () => {
     openTxn = Number(el.dataset.tx); armDelete = armPlant = false; render();

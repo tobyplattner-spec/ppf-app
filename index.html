@@ -2109,18 +2109,44 @@ function wireBloomSheet(app){
 /* An open-ended range: either end can be left empty. Dates are ISO strings, so a
    plain string comparison is a date comparison. A transaction with no date at all
    sits outside any range rather than drifting to one end of it. */
-let ledFrom = "", ledTo = "";
-const inLedRange = x => {
-  if(!ledFrom && !ledTo) return true;
-  if(!x.date) return false;
-  return (!ledFrom || x.date >= ledFrom) && (!ledTo || x.date <= ledTo);
-};
+/* A ledger is read in a few habitual ways — all of it, what has just gone out, or one
+   season at a time — so those are one click each and the two date boxes are kept for
+   the rest. The seasons are read off the transactions themselves.
+
+   An open-ended range: either end can be left empty. Dates are ISO strings, so a plain
+   string comparison is a date comparison. A transaction with no date at all sits
+   outside any range rather than drifting to one end of it. */
+let ledRange = "all", ledFrom = "", ledTo = "";
+const ledYears = () => [...new Set(DB.transactions.map(t => (t.date || "").slice(0,4))
+  .filter(Boolean))].sort().reverse();
+function ledBounds(){
+  if(ledRange === "custom") return [ledFrom, ledTo];
+  if(ledRange === "d30"){
+    const d = new Date(); d.setDate(d.getDate() - 29);
+    return [d.toISOString().slice(0,10), ""];
+  }
+  if(/^\d{4}$/.test(ledRange)) return [ledRange + "-01-01", ledRange + "-12-31"];
+  return ["", ""];
+}
+const inBounds = (x, f, t) =>
+  (!f && !t) ? true : !x.date ? false : (!f || x.date >= f) && (!t || x.date <= t);
+/* Only says what the lit control does not already say — a year button has the year on
+   it, so repeating Jan 1 to Dec 31 back is noise. */
+function ledWords(f, t){
+  if(/^\d{4}$/.test(ledRange)) return `all of ${ledRange}`;
+  if(ledRange === "d30") return `${fmtDate(f)} onwards`;
+  return !f && !t ? "every transaction"
+    : f && t ? `${fmtDate(f)} to ${fmtDate(t)}`
+    : f ? `${fmtDate(f)} onwards`
+    : `up to ${fmtDate(t)}`;
+}
 
 function renderLedger(app){
   const all = DB.transactions;
-  const list = all.filter(inLedRange).slice().sort((a,b)=> (b.date||"").localeCompare(a.date||""));
+  const [lf, lt] = ledBounds();
+  const list = all.filter(x => inBounds(x, lf, lt)).slice().sort((a,b)=> (b.date||"").localeCompare(a.date||""));
   const t = totals(list);
-  const ranged = !!(ledFrom || ledTo);
+  const ranged = !!(lf || lt);
   const spent = list.filter(x => x.direction !== "income").length;
 
   app.innerHTML = `
@@ -2135,12 +2161,18 @@ function renderLedger(app){
   </div>
 
   <div class="row section" style="align-items:flex-end">
-    <div style="max-width:190px">${field("From", `<input type="date" required id="lfrom" value="${ledFrom}">`)}</div>
-    <div style="max-width:190px">${field("To", `<input type="date" required id="lto" value="${ledTo}">`)}</div>
-    ${ranged ? `<button class="btn" id="lclear">Clear Dates</button>
-      <p class="small muted" style="margin:0 0 8px">Showing <span class="num">${
-      list.length}</span> of <span class="num">${all.length}</span> · the figures above follow the range</p>` : ""}
+    <div class="seg" role="tablist">
+      <button data-lr="all" class="${ledRange === "all" ? "on" : ""}">All</button>
+      <button data-lr="d30" class="${ledRange === "d30" ? "on" : ""}">Last 30 days</button>
+      ${ledYears().map(y => `<button data-lr="${y}" class="${ledRange === y ? "on" : ""}">${y}</button>`).join("")}
+      <button data-lr="custom" class="${ledRange === "custom" ? "on" : ""}">Custom</button>
+    </div>
+    ${ledRange === "custom" ? `
+      <div style="max-width:180px">${field("From", `<input type="date" id="lfrom" value="${ledFrom}">`)}</div>
+      <div style="max-width:180px">${field("To", `<input type="date" id="lto" value="${ledTo}">`)}</div>` : ""}
   </div>
+  ${ranged ? `<p class="small muted" style="margin:10px 0 0">${ledWords(lf, lt)} · showing <span class="num">${
+    list.length}</span> of <span class="num">${all.length}</span> — the figures above follow the range.</p>` : ""}
 
   <div class="card section" style="padding:6px 8px">
     <table><thead><tr><th>Date</th><th>Counterparty</th><th>Category</th><th class="r">Amount</th><th class="r">Allocated</th></tr></thead>
@@ -2165,11 +2197,10 @@ function renderLedger(app){
   if(draftTxn) app.insertAdjacentHTML("beforeend", txnSheet());
   else if(open) app.insertAdjacentHTML("beforeend", txnView(open));
 
-  $("#lfrom").onchange = e => { ledFrom = e.target.value; render(); };
-  $("#lto").onchange   = e => { ledTo   = e.target.value; render(); };
-  /* Only there when there is something to clear, so it never sits about looking
-     like a button that does nothing. */
-  if(ranged) $("#lclear").onclick = () => { ledFrom = ledTo = ""; render(); };
+  app.querySelectorAll("[data-lr]").forEach(el => el.onclick = () => { ledRange = el.dataset.lr; render(); });
+  /* The two boxes are only there while Custom is the lit one. */
+  const lfEl = $("#lfrom"); if(lfEl) lfEl.onchange = e => { ledFrom = e.target.value; render(); };
+  const ltEl = $("#lto");   if(ltEl) ltEl.onchange = e => { ledTo   = e.target.value; render(); };
   $("#addTxn").onclick = () => { draftTxn = blankTxn("order"); render(); };
   app.querySelectorAll("[data-tx]").forEach(tr => tr.onclick = () => {
     openTxn = Number(tr.dataset.tx); armDelete = armPlant = false; render();
