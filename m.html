@@ -32,7 +32,12 @@
   --radius:10px;
   --pad:14px;
   --tabh:58px;
-  --safe-b:env(safe-area-inset-bottom,0px);
+  /* Safari reports a taller bottom inset while its toolbar is expanded, and the toolbar
+     stays expanded on a screen too short to scroll. Unclamped, that padded the tab bar
+     out to nearly twice its height on whichever screen happened to be empty — the tabs
+     riding up with a bare strip left underneath them. The home indicator is 34px at its
+     tallest on any iPhone, so that is as far as this ever needs to reach. */
+  --safe-b:min(env(safe-area-inset-bottom,0px),34px);
   --safe-t:env(safe-area-inset-top,0px);
 }
 *{box-sizing:border-box}
@@ -46,7 +51,15 @@ body{
   /* A tap should never leave a grey box behind; the app draws its own press states. */
   -webkit-tap-highlight-color:transparent;
   overscroll-behavior-y:none;
+  /* Every screen stands at least as tall as the window. Bloom, before the season's
+     first day is recorded, is the one screen with too little on it to reach the
+     bottom edge on its own, and a document that stops short is where iOS stops
+     agreeing with itself about where the fixed tab bar and its safe-area padding
+     belong — the bar came out near double height with a bare strip beneath it.
+     Filling the window costs the other four nothing: they already overflow it. */
+  display:flex; flex-direction:column; min-height:100vh;
 }
+@supports (height:100dvh){ body{min-height:100dvh} }
 h1,h2,.display{
   font-family:'Baskervville',Georgia,serif; text-transform:uppercase;
   letter-spacing:.08em; font-weight:400; margin:0;
@@ -86,7 +99,7 @@ header h1{
   header{gap:8px}
   header h1{letter-spacing:.05em}
 }
-main{padding:16px var(--pad) calc(var(--tabh) + var(--safe-b) + 26px)}
+main{flex:1 1 auto;padding:16px var(--pad) calc(var(--tabh) + var(--safe-b) + 26px)}
 
 /* The state pill is the one way into the data sheet: what file this is, whether it
    is written yet, and how to send it back where it came from. */
@@ -117,6 +130,10 @@ main{padding:16px var(--pad) calc(var(--tabh) + var(--safe-b) + 26px)}
   letter-spacing:.05em;text-transform:uppercase;
 }
 .tab svg{width:23px;height:23px;display:block}
+/* The mark is a solid silhouette where the rest are 1.6px line drawings, so it is
+   set a little smaller to carry the same weight — the 1px either side keeps the
+   icon row exactly as tall as it was. */
+.tab .markicon{width:21px;height:21px;margin:1px 0}
 .tab.on{color:var(--rose-dark)}
 .tab.on svg{color:var(--rose)}
 .tab:active{background:var(--rose-tint)}
@@ -1010,7 +1027,7 @@ const ROUTES = [
   ["#/dashboard","Farm","farm"],
   ["#/collection","Plants","list"],
   ["#/map","Map","pin"],
-  ["#/bloom","Bloom","bloom"],
+  ["#/bloom","Bloom","mark"],
   ["#/ledger","Ledger","ledger"],
 ];
 function paintNav(){
@@ -1021,7 +1038,19 @@ function paintNav(){
   /* A plant belongs to its cultivar, so the Plants tab stays lit while one is open. */
   const at = h.startsWith("#/plant/") ? "#/collection" : h;
   nav.innerHTML = ROUTES.map(([href,label,icon]) =>
-    `<a class="tab ${at.startsWith(href) ? "on" : ""}" href="${href}">${ICON[icon]}<span>${label}</span></a>`).join("");
+    `<a class="tab ${at.startsWith(href) ? "on" : ""}" href="${href}">${tabIcon(icon)}<span>${label}</span></a>`).join("");
+}
+/* Bloom wears the farm's own mark instead of a drawn flower — the thing being recorded
+   is a peony, and there is already one in the header. Borrowed from there rather than
+   copied, so the two can never drift apart, and filled with currentColor so the tab bar
+   tints it on and off like every other icon. */
+function tabIcon(key){
+  if(key !== "mark") return ICON[key];
+  const src = document.querySelector("header .mark");
+  if(!src) return ICON.bloom;                      // no header yet: the line drawing still stands
+  return src.outerHTML
+    .replace('class="mark"', 'class="markicon"')
+    .replace('fill="#FDF9F7"', 'fill="currentColor"');
 }
 
 function render(){
