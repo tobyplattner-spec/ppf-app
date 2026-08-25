@@ -1014,7 +1014,7 @@ function pillClass(s){
 /* Five screens, five tabs along the bottom edge — where a thumb already is and where
    iOS puts them. The same five the desktop app carries along its top. */
 const ROUTES = [
-  ["#/dashboard","Farm","farm"],
+  ["#/dashboard","Dashboard","farm"],
   ["#/collection","Plants","list"],
   ["#/map","Map","pin"],
   ["#/bloom","Bloom","mark"],
@@ -1334,7 +1334,7 @@ function renderDashboard(app){
   for(const p of DB.plants) byStatus[p.status] = (byStatus[p.status]||0)+1;
 
   app.innerHTML = `
-  ${screenHead("The farm", `<span class="num">${DB.plants.length}</span> plants ·
+  ${screenHead("Dashboard", `<span class="num">${DB.plants.length}</span> plants ·
     <span class="num">${DB.cultivars.length}</span> cultivars`)}
 
   <div class="mstats">
@@ -2338,7 +2338,10 @@ function wirePlantSheet(app, p){
   on("#unpGo", () => {
     const was = `${p.x}, ${p.y}`;
     unplacePlant(p);
-    render();
+    /* That is the whole of what the sheet was open for, and a sheet left standing on
+       "not placed" is a dead end. So it closes the way it always closes — back to the
+       map you were looking at, or back to the cultivar page you came from. */
+    close();
     saveNow(`Plant ${p.id} taken off the map — ${was} ft is free`);
   });
 

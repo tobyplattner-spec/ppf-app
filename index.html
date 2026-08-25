@@ -772,7 +772,7 @@ function renderDashboard(app){
   for(const p of DB.plants) byStatus[p.status] = (byStatus[p.status]||0)+1;
 
   app.innerHTML = `
-  <div class="between"><h2>The farm</h2><span class="muted small num">${DB.plants.length} plants · ${DB.cultivars.length} cultivars</span></div>
+  <div class="between"><h2>Dashboard</h2><span class="muted small num">${DB.plants.length} plants · ${DB.cultivars.length} cultivars</span></div>
 
   <div class="grid metrics section">
     ${metric("Plants", act.length, `${DB.cultivars.length} cultivars`)}
