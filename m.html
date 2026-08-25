@@ -251,6 +251,10 @@ label{display:block;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-t
 .strip i.on{background:var(--rose)}
 .strip i.near{background:var(--rose-tint)}
 .loclink,.locink{color:var(--rose-dark);font-variant-numeric:tabular-nums;border-bottom:1px dotted var(--rose)}
+/* A position is a link on a tap and a question on a hold, so the hold must not also
+   bring up iOS's own copy-and-share menu over the top of it. */
+.locink[data-unplace]{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.locink.holding{background:var(--rose-tint);border-radius:5px;box-shadow:0 0 0 4px var(--rose-tint)}
 .seasontag{font-size:16px;font-weight:700;color:var(--graphite-60)}
 .subline{font-size:13.5px;color:var(--graphite-60);margin-top:5px;line-height:1.45}
 .cell{display:flex;align-items:center;min-width:0}
@@ -1047,8 +1051,11 @@ function render(){
   document.body.classList.toggle("mapview", hash.startsWith("#/map") && !!DB);
   document.body.classList.toggle("nofile", !DB);
   /* An open panel is what keeps an edit alive; leaving the screen behind it ends the
-     edit. The ledger only counts while one of its transactions is actually open. */
+     edit. The ledger only counts while one of its transactions is actually open, and
+     the map only while a plant is — a plant opened from the map keeps the #/map hash,
+     so without that second clause every render tore down the edit it had just begun. */
   const panelOpen = hash.startsWith("#/collection/") || hash.startsWith("#/plant/")
+    || (hash.startsWith("#/map") && openPlant !== null)
     || (hash.startsWith("#/ledger") && openTxn !== null);
   if(editing && !panelOpen) editing = null;
 
@@ -1089,7 +1096,7 @@ window.addEventListener("hashchange", () => {
   /* Moving to another screen closes an open plant sheet; opening one over the map
      does not change the hash, so it survives there. */
   if(!location.hash.startsWith("#/plant/") && !draftPlant){
-    openPlant = null; editing = null; armDividePlant = false; discardDivide(); }
+    openPlant = null; editing = null; armDividePlant = false; armUnplace = false; discardDivide(); }
   if(!location.hash.startsWith("#/collection/")){ photoFor = null; draftCrop = null; }
   if(!location.hash.startsWith("#/ledger")){ openTxn = null; armDelete = armPlant = false; }
   if(!location.hash.startsWith("#/bloom")) discardBloomDraft();
@@ -2116,7 +2123,20 @@ let draftPlant = null;
 const findPlant = id => (draftPlant && draftPlant.id === id) ? draftPlant : DB.plants.find(x => x.id === id);
 const isDraft = p => !!draftPlant && draftPlant.id === p.id;
 function discardDraft(){ draftPlant = null; openPlant = null; editing = null;
-  draftDivide = null; armDividePlant = false; }
+  draftDivide = null; armDividePlant = false; armUnplace = false; }
+
+/* A peony can leave the map without leaving the record: the square comes free and it
+   goes back to the tray, which is the difference between moving it and deleting it.
+   Asked for by holding the position rather than by a button, because it is rare and a
+   button for it would sit there being the wrong answer every other day. */
+let armUnplace = false;
+const canUnplace = p => live(p) && p.x !== null;
+function unplacePlant(p){
+  p.x = null; p.y = null;
+  if(focusId === p.id) focusId = null;          // the ring has nothing left to point at
+  armUnplace = false;
+  markDirty();
+}
 
 function plantSheet(p){
   if(dividing(p)) return dividePanel(p);       // the same sheet, asking a different question
@@ -2135,7 +2155,7 @@ function plantSheet(p){
     /* A crown that has been divided away is not on the map any more, so where it stood
        is a fact about the past rather than somewhere to go. */
     : !live(p) ? `was at ${p.x}, ${p.y} ft`
-    : `<a class="locink" href="#/map/${p.id}">${p.x}, ${p.y} ft</a>`;
+    : `<a class="locink" href="#/map/${p.id}" data-unplace="${p.id}">${p.x}, ${p.y} ft</a>`;
   const from = parent
     ? `<a class="locink" href="#/plant/${parent.id}">#${parent.id} ${esc(cultivar(parent.cultivarId).name || "Unnamed cultivar")}</a>`
     : null;
@@ -2208,12 +2228,25 @@ function plantSheet(p){
          its own day, set on its own page.`
       : `Every division off this crown is in the ground.`}</p>` : "";
 
+  /* Asked in the footer rather than beside the position: there is room there for what
+     it actually does, and it is the same place a bloom day is asked to be deleted. */
+  const asking = armUnplace && canUnplace(p);
   return sheet("ps", {
     title: isDraft(p) ? "New plant" : `Plant <span class="num">${p.id}</span>`,
     sub: isDraft(p) ? "Nothing is added until you save" : esc(v.name || "Untitled cultivar"),
     pill: `<span class="pill ${pillClass(p.status)}" style="margin-top:6px">${p.status}</span>`,
     body: fields + divisions,
-    foot: `<div class="acts">
+    stacked: asking,
+    foot: asking
+      ? `<div class="confirming">
+           <p class="small">Take this plant off the map? Its square at <span class="num">${p.x}, ${p.y}</span> ft
+             comes free and it goes back to the tray to be placed again. Nothing else about it changes, and
+             it is still here.</p>
+           <div class="acts">
+             <button class="btn" id="unpCancel">Cancel</button>
+             <button class="btn danger" id="unpGo">Take Off the Map</button>
+           </div></div>`
+      : `<div class="acts">
       <button class="btn danger" id="delPlant">${isDraft(p) ? "Discard" : "Delete"}</button>
       ${canDivide(p) ? `<button class="btn" id="divide_plant">Divide</button>` : ""}
       ${on ? `<button class="btn primary" id="save_plant">Save</button>`
@@ -2263,7 +2296,7 @@ function wirePlantSheet(app, p){
   const close = () => {
     const onMap = location.hash.startsWith("#/map");
     const cid = p.cultivarId;
-    clearNew(); armDividePlant = false;
+    clearNew(); armDividePlant = false; armUnplace = false;
     if(isDraft(p)) discardDraft(); else { editing = null; openPlant = null; }
     if(onMap) return render();
     location.hash = "#/collection/" + cid;
@@ -2274,13 +2307,40 @@ function wirePlantSheet(app, p){
   bindEdits(app);
   wirePicker($("#p_source"), "psource",           // stands in for the generic binding
     v => { p.source = v.trim() || null; }, markDirty);   // no re-render: it would eat the click on Save
-  if(isEditing("p:" + p.id)) $("#save_plant").onclick = () => {
+  /* The whole footer is gone while the question is up, so each button is asked for
+     rather than assumed — the same way a bloom day's is. */
+  const on = (sel, fn) => { const el = $(sel); if(el) el.onclick = fn; };
+  if(isEditing("p:" + p.id)) on("#save_plant", () => {
     if(isDraft(p)){ DB.plants.push(p); draftPlant = null; markDirty(); }
     commitEdit();
-  };
-  else $("#edit_plant").onclick = () => beginEdit("p:" + p.id);
+  });
+  else on("#edit_plant", () => beginEdit("p:" + p.id));
   const dv = $("#divide_plant");
   if(dv) dv.onclick = () => { editing = null; armDividePlant = false; draftDivide = blankDivide(p); render(); };
+
+  /* Hold the position and it offers to give up the square; tap it and it still goes to
+     the map. The hold has already answered by the time the finger lifts, so the tap
+     that ends it must not also navigate. */
+  const loc = app.querySelector("[data-unplace]");
+  if(loc){
+    let holdT = null, answered = false;
+    const drop = () => { clearTimeout(holdT); loc.classList.remove("holding"); };
+    loc.addEventListener("pointerdown", e => {
+      if(e.button) return;                       // a right-click is not a hold
+      answered = false;
+      loc.classList.add("holding");
+      holdT = setTimeout(() => { answered = true; drop(); armUnplace = true; render(); }, 500);
+    });
+    ["pointerup","pointercancel","pointerleave"].forEach(t => loc.addEventListener(t, drop));
+    loc.addEventListener("click", e => { if(answered){ e.preventDefault(); answered = false; } });
+  }
+  on("#unpCancel", () => { armUnplace = false; render(); });
+  on("#unpGo", () => {
+    const was = `${p.x}, ${p.y}`;
+    unplacePlant(p);
+    render();
+    saveNow(`Plant ${p.id} taken off the map — ${was} ft is free`);
+  });
 
   /* One click to the division, and the "Divided from" link is the way back. */
   app.querySelectorAll("[data-goplant]").forEach(tr => tr.onclick = () => {
@@ -2293,7 +2353,7 @@ function wirePlantSheet(app, p){
   if(mc) mc.onclick = () => { armDividePlant = false; render(); };
   const mg = $("#dvPlantGo");
   if(mg) mg.onclick = () => markDivisionsPlanted(p.id, $("#dvPlantDate").value);
-  $("#delPlant").onclick = () => {
+  on("#delPlant", () => {
     if(isDraft(p)) return close();            // never existed; nothing to confirm
     const n = DB.transactions.reduce((s,t) => s + (t.allocations||[]).filter(a =>
       a.target === "plant" && a.targetId === p.id).length, 0);
@@ -2302,7 +2362,7 @@ function wirePlantSheet(app, p){
     deletePlant(p.id); editing = null; openPlant = null;
     if(onMap) return render();
     location.hash = "#/collection/" + cid;
-  };
+  });
 }
 /* ---------- dividing ---------- */
 /* Lifting a crown ends one plant and starts several. The parent is not deleted: it goes
@@ -3798,6 +3858,7 @@ document.addEventListener("keydown", e => {
   }
   if(photoFor !== null){ photoFor = null; draftCrop = null; return render(); }
   if(draftDivide){ discardDivide(); return render(); }
+  if(armUnplace){ armUnplace = false; return render(); }
   if(armDividePlant){ armDividePlant = false; return render(); }
   if(openPlant !== null){
     const p = findPlant(openPlant), cid = p && p.cultivarId;
