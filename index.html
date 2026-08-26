@@ -2179,10 +2179,6 @@ const ledYears = () => [...new Set(DB.transactions.map(t => (t.date || "").slice
   .filter(Boolean))].sort().reverse().slice(0, 2);
 function ledBounds(){
   if(ledRange === "custom") return [ledFrom, ledTo];
-  if(ledRange === "d30"){
-    const d = new Date(); d.setDate(d.getDate() - 29);
-    return [d.toISOString().slice(0,10), ""];
-  }
   if(/^\d{4}$/.test(ledRange)) return [ledRange + "-01-01", ledRange + "-12-31"];
   return ["", ""];
 }
@@ -2192,7 +2188,6 @@ const inBounds = (x, f, t) =>
    it, so repeating Jan 1 to Dec 31 back is noise. */
 function ledWords(f, t){
   if(/^\d{4}$/.test(ledRange)) return `all of ${ledRange}`;
-  if(ledRange === "d30") return `${fmtDate(f)} onwards`;
   return !f && !t ? "every transaction"
     : f && t ? `${fmtDate(f)} to ${fmtDate(t)}`
     : f ? `${fmtDate(f)} onwards`
@@ -2221,7 +2216,6 @@ function renderLedger(app){
   <div class="row section" style="align-items:flex-end">
     <div class="seg" role="tablist">
       <button data-lr="all" class="${ledRange === "all" ? "on" : ""}">All</button>
-      <button data-lr="d30" class="${ledRange === "d30" ? "on" : ""}">30 days</button>
       ${ledYears().map(y => `<button data-lr="${y}" class="${ledRange === y ? "on" : ""}">${y}</button>`).join("")}
       <button data-lr="custom" class="${ledRange === "custom" ? "on" : ""}">Custom</button>
     </div>
