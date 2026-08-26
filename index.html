@@ -398,10 +398,16 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const cents = n => Math.round((Number(n) || 0) * 100);
 const money = n => (cents(n) / 100);
 const fmt = n => "$" + money(n).toFixed(2);
+/* A ledger reads in two directions, so both of them are signed. A true minus rather
+   than a hyphen, which is the width of the plus and keeps a column of figures square. */
+const signed = x => (x.direction === "income" ? "+" : "\u2212") + fmt(x.amount);
 /* Asking for a locale date builds a formatter every time; one kept formatter does
    the same job for about a thirty-sixth of the work. Held on the function itself,
    so this is still the one self-contained line the tests pull out. */
 const fmtDate = d => d ? (fmtDate.f || (fmtDate.f = new Intl.DateTimeFormat(undefined,{year:"numeric",month:"short",day:"numeric"}))).format(new Date(d + "T00:00:00")) : "—";
+/* The same day without its year, for where the year is already being said alongside
+   it — a date that repeats the subtitle under it is one fact printed twice. */
+const fmtDay = d => d ? (fmtDay.f || (fmtDay.f = new Intl.DateTimeFormat(undefined,{month:"short",day:"numeric"}))).format(new Date(d + "T00:00:00")) : "\u2014";
 const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
 /* Buttons are titles, so they take title case: everything capitalised except the
    little joining words, and those only when they are neither first nor last.
@@ -2022,7 +2028,7 @@ function renderBloom(app){
   <div class="grid metrics section">
     ${metric("Stems", t.stems, t.stems ? `cut in ${year}` : "none cut yet")}
     ${metric("Cultivars", t.cultivars, "bloomed this season")}
-    ${metric("First bloom", t.first ? fmtDate(t.first) : "—", t.first ? `of ${year}` : "not yet recorded")}
+    ${metric("First bloom", t.first ? fmtDay(t.first) : "—", t.first ? `of ${year}` : "not yet recorded")}
     ${metric("Days", t.days, "logged")}
   </div>
 
@@ -2234,7 +2240,7 @@ function renderLedger(app){
         <td class="muted small" style="white-space:nowrap">${fmtDate(x.date)}</td>
         <td>${esc(x.counterparty)}<div class="small muted">${esc(x.description||"")}</div></td>
         <td><span class="tag">${esc(x.category||"—")}</span></td>
-        <td class="r num">${x.direction==="income"?"+":""}${fmt(x.amount)}</td>
+        <td class="r num">${signed(x)}</td>
         <td class="r alloc">${(x.allocations||[]).length
             ? `${fmt(b.allocated)} · ${x.allocations.length} plant${x.allocations.length>1?"s":""}${b.balanced?"":` <span class="warn">off by ${fmt(Math.abs(b.diff))}</span>`}`
             : "—"}</td></tr>`;
@@ -2363,7 +2369,7 @@ function txnView(x){
       <div class="fieldrow">
         ${field(k.dir === "income" ? "Customer" : "Vendor", ro(x.counterparty))}
         ${field("Date", ro(fmtDate(x.date)))}
-        ${field("Amount", ro((x.direction === "income" ? "+" : "") + fmt(x.amount)))}
+        ${field("Amount", ro(signed(x)))}
         ${rw(on, "Category", F.sel("t", x.id, "category", x.category,
              x.direction === "income" ? CAT_IN : CAT_OUT), x.category)}
       </div>
