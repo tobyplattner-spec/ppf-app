@@ -3401,6 +3401,11 @@ function commitOrder(filled, ship, tax = 0){
 /* ---------- property map ---------- */
 const live = p => !["Lost","Sold","Divided"].includes(p.status);
 function mapped(){ return DB.plants.filter(p => live(p) && p.x !== null && p.y !== null); }
+/* The dot's colour is its stage: a plan is charcoal, a peony in the ground is rose. Only
+   three statuses ever reach the map — Planned, Planted, Established — so that is the
+   whole of the question. Crowded used to be the charcoal one; it is a ring now, so it
+   can flag a plan and a planted peony alike rather than being drowned out by one. */
+const pinFill = p => p.status === PLANNED ? "#3A3A3C" : "#C25A6D";
 function unmapped(){ return DB.plants.filter(p => live(p) && (p.x === null || p.y === null)); }
 
 /* The map is a grid of 3 ft cells and a cell holds at most one peony, which is
@@ -3676,6 +3681,7 @@ function renderMap(app){
   const P = DB.property;
   if(!view) homeView();
   const h = viewH(), cl = clashes(), un = unmapped();
+  const planned = mapped().filter(p => p.status === PLANNED);
   /* A marker is a feature of its square, not of the screen: it is always 0.38 of a
      cell across and can never spill into a neighbour. Zoomed out that leaves a plain
      dot; the number and the name appear once the cell is big enough to carry them. */
@@ -3692,7 +3698,7 @@ function renderMap(app){
 
   const tray = un.length
     ? `<div class="tray" id="tray">
-        <div class="tlabel"><span>To place — drag one onto the map</span><span class="num">${un.length}</span></div>
+        <div class="tlabel"><span>To place — tap to open, drag onto the map</span><span class="num">${un.length}</span></div>
         <div class="chips">${un.map(p => `<button class="chip" data-place="${p.id}">${
           esc(cultivar(p.cultivarId).name || "Plant " + p.id)}</button>`).join("")}</div>
       </div>`
@@ -3718,7 +3724,9 @@ function renderMap(app){
             <circle cx="${p.x}" cy="${p.y}" r="${hitR}" fill="transparent"/>
             ${focusId===p.id?`<circle data-focus="1" cx="${p.x}" cy="${p.y}" r="${R*2.1}" fill="none"
                     stroke="#C25A6D" stroke-width="${px(2)}" opacity=".55"/>`:""}
-            <circle cx="${p.x}" cy="${p.y}" r="${R}" fill="${cl.ids.has(p.id)?"#3A3A3C":"#C25A6D"}"
+            ${cl.ids.has(p.id)?`<circle cx="${p.x}" cy="${p.y}" r="${R*1.5}" fill="none"
+                    stroke="#8A3D4C" stroke-width="${Math.min(R*0.3, px(2))}"/>`:""}
+            <circle cx="${p.x}" cy="${p.y}" r="${R}" fill="${pinFill(p)}"
                     stroke="#fff" stroke-width="${Math.min(R*0.22, px(1.4))}"/>
             ${showNames?`<text x="${p.x}" y="${p.y+R+px(13)}" text-anchor="middle" font-family="Lato,sans-serif"
                   font-size="${px(12)}" fill="#3A3A3C" stroke="#FDF9F7" stroke-width="${px(2.4)}"
@@ -3728,7 +3736,9 @@ function renderMap(app){
 
       <div class="maptop">
         <h2>${esc(P.name)}</h2>
-        <span class="small muted">${mapped().length} placed${un.length?` · ${un.length} to place`:""}${
+        <span class="small muted">${mapped().length} placed${
+          planned.length?` · ${planned.length} planned`:""}${
+          un.length?` · ${un.length} to place`:""}${
           cl.pairs.length?` · <span class="warn">${cl.pairs.length} crowded</span>`:""} · ${hint}</span>
       </div>
       <div class="compass">${compassSvg(48)}</div>
@@ -4095,8 +4105,14 @@ function wireMap(){
     });
     rail.addEventListener("pointerup", e => {
       if(carry && e.pointerId === carry.id){ endCarry(true); from = null; return; }
-      if(from && e.pointerId === from.id && !from.how && from.chip)
-        toast("Drag it up onto the map");
+      /* A tap that became neither a lift nor a scroll is a question, not a fumble — the
+         same question a peony on the map answers when it is tapped. */
+      if(from && e.pointerId === from.id && !from.how && from.chip){
+        const id = Number(from.chip.dataset.place);
+        from = null;
+        openPlant = id;
+        return render();
+      }
       from = null;
     });
     rail.addEventListener("pointercancel", e => {
