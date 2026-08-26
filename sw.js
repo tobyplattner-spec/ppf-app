@@ -4,7 +4,11 @@
    Requests to GitHub are left strictly alone.
 
    Everything lives in one folder, so one worker covers both faces. */
-const CACHE = "ppf-v6";
+/* Bumped deliberately for the rollout of Aug 26: two Pages deployments sat unbuilt for
+   a day, so every device has been holding a shell older than the records it is reading.
+   A new name empties the old one on activate rather than trusting network-first to
+   catch every file on the way past. */
+const CACHE = "ppf-v7";
 const SHELL = [
   "./", "./index.html", "./m.html", "./store.js?v=5",
   "./manifest.webmanifest", "./manifest-phone.webmanifest",
