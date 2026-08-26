@@ -2172,8 +2172,11 @@ function wireBloomSheet(app){
    string comparison is a date comparison. A transaction with no date at all sits
    outside any range rather than drifting to one end of it. */
 let ledRange = "all", ledFrom = "", ledTo = "";
+/* At most the two most recent seasons that actually have anything in them. Every year
+   the books have ever covered would be a rail that grows a button a year and pushes
+   Custom off the end of it — and Custom is what reaches the older ones. */
 const ledYears = () => [...new Set(DB.transactions.map(t => (t.date || "").slice(0,4))
-  .filter(Boolean))].sort().reverse();
+  .filter(Boolean))].sort().reverse().slice(0, 2);
 function ledBounds(){
   if(ledRange === "custom") return [ledFrom, ledTo];
   if(ledRange === "d30"){
@@ -2218,7 +2221,7 @@ function renderLedger(app){
   <div class="row section" style="align-items:flex-end">
     <div class="seg" role="tablist">
       <button data-lr="all" class="${ledRange === "all" ? "on" : ""}">All</button>
-      <button data-lr="d30" class="${ledRange === "d30" ? "on" : ""}">Last 30 days</button>
+      <button data-lr="d30" class="${ledRange === "d30" ? "on" : ""}">30 days</button>
       ${ledYears().map(y => `<button data-lr="${y}" class="${ledRange === y ? "on" : ""}">${y}</button>`).join("")}
       <button data-lr="custom" class="${ledRange === "custom" ? "on" : ""}">Custom</button>
     </div>

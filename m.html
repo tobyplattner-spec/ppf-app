@@ -395,6 +395,8 @@ td.r,th.r{text-align:right}
 .pshead .grow{flex:1;min-width:0}
 .pshead h2{font-size:20px}
 .psbody{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 18px 4px}
+/* With no footer under it the body is what has to clear the home indicator. */
+.pspanel.nofoot .psbody{padding-bottom:calc(18px + var(--safe-b))}
 .psfoot{
   flex:none;display:flex;justify-content:space-between;align-items:center;gap:10px;
   padding:12px 18px calc(12px + var(--safe-b));margin-top:6px;
@@ -412,6 +414,16 @@ td.r,th.r{text-align:right}
 }
 .psx:active{background:var(--graphite-30);color:var(--graphite)}
 .confirming p{margin:0 0 12px}
+/* Held on the map, a peony asks about its square there and then. Small, because it is
+   one question — a whole sheet for it would be the very step this saves. */
+.askcard{
+  background:var(--card);border-radius:18px;width:100%;max-width:420px;
+  margin:0 auto calc(var(--tabh) + var(--safe-b) + 14px);
+  padding:16px 18px;box-shadow:0 -8px 40px rgba(58,58,60,.3);
+  animation:rise .2s cubic-bezier(.22,.68,.36,1);
+}
+.askcard p{margin:0 0 14px}
+.askcard .acts{display:flex;justify-content:flex-end;gap:10px}
 
 /* ---------- toast ---------- */
 .toast{
@@ -494,9 +506,10 @@ body.mapview main{
   white-space:nowrap;color:var(--graphite);
 }
 .chip.carrying{opacity:.3}
-/* The rail scrolls sideways under a finger. Anything more upright than that is a peony
-   being lifted out of it onto the map, which the script takes over. */
-.tray .chips{touch-action:pan-x}
+/* The rail hands the browser nothing: every gesture on it is decided here. Left to
+   pan-x, a drag with any sideways lean in it was liable to be claimed as a scroll
+   halfway out of the tray, and the peony sprang back. */
+.tray .chips{touch-action:none}
 /* What is being planted is aimed a fingertip above the finger, and its name sits above
    that again — so neither your hand nor the label is over the square it is going into.
    Grey when there is no free square there to take it. */
@@ -708,7 +721,7 @@ const ICON = {
    indicator. The ids are the ones the shared wiring already reaches for. */
 function sheet(id, o){
   const closeId = o.closeId || (id + "Close");
-  return `<div class="psback" id="${id}Back"><div class="pspanel">
+  return `<div class="psback" id="${id}Back"><div class="pspanel${o.foot ? "" : " nofoot"}">
     <div class="pshandle"><i></i></div>
     <div class="pshead">
       <div class="grow"><h2>${o.title}</h2>${o.sub ? `<div class="subline">${o.sub}</div>` : ""}</div>
@@ -716,7 +729,7 @@ function sheet(id, o){
       <button class="psx" id="${closeId}" aria-label="Close">&times;</button>
     </div>
     <div class="psbody">${o.body}</div>
-    <div class="psfoot${o.stacked ? " stacked" : ""}">${o.foot}</div>
+    ${o.foot ? `<div class="psfoot${o.stacked ? " stacked" : ""}">${o.foot}</div>` : ""}
   </div></div>`;
 }
 
@@ -802,14 +815,15 @@ function dataSheet(){
         ? ` <span class="warn">There are edits that have not been sent back yet.</span>`
         : " Everything has been sent back."}</p>`;
 
+  /* No footer: the handle and the × already close it, and the file it is written to is
+     named in the first line of the body. A third way out and a second copy of the name
+     were both just in the way. */
   return sheet("ds", {
     title: "Your data",
     sub: mode === "folder" ? "Folder — read and written in place"
        : mode === "served" ? "Served — read from beside this page"
        : "Opened by hand — read through",
     body,
-    foot: `<span class="small muted">${esc(Store.label || DATA_FILE)}</span>
-      <div class="acts"><button class="btn" id="dsDone">Done</button></div>`
   });
 }
 
@@ -849,8 +863,6 @@ function repoSheet(){
     title: "Your data",
     sub: "Repository \u2014 read and written in place",
     body,
-    foot: `<span class="small muted">${esc(Store.label || "")}</span>
-      <div class="acts"><button class="btn" id="dsDone">Done</button></div>`
   });
 }
 
@@ -871,7 +883,6 @@ function bookPicker(){
 function wireDataSheet(){
   const shut = () => { dataOpen = false; render(); };
   $("#dsClose").onclick = shut;
-  $("#dsDone").onclick = shut;
   $("#dsBack").onclick = e => { if(e.target.id === "dsBack") shut(); };
   document.querySelectorAll("[data-book]").forEach(el => el.onclick = async () => {
     const to = el.dataset.book;
@@ -1162,6 +1173,7 @@ window.addEventListener("hashchange", () => {
   if(!location.hash.startsWith("#/collection/")){ photoFor = null; draftCrop = null; }
   if(!location.hash.startsWith("#/ledger")){ openTxn = null; armDelete = armPlant = false; }
   if(!location.hash.startsWith("#/bloom")) discardBloomDraft();
+  if(!location.hash.startsWith("#/map")) closeMapAsk();
   /* A screen you have just arrived at should be at the top of itself. */
   window.scrollTo(0, 0);
   render();
@@ -2125,7 +2137,6 @@ function renderCultivar(app, id){
       <div class="acts">${editBar(vEdit, "cultivar")}</div>
     </div>
     ${details}
-    ${vEdit ? `<p class="small muted" style="margin:14px 0 0">Save closes this and writes the file.</p>` : ""}
   </div>
 
   <div class="between section" style="margin-bottom:8px">
@@ -2293,11 +2304,19 @@ function plantSheet(p){
   /* Asked in the footer rather than beside the position: there is room there for what
      it actually does, and it is the same place a bloom day is asked to be deleted. */
   const asking = armUnplace && canUnplace(p);
+  /* Dividing is something done to a crown in the ground, so it is not offered for a
+     root still on order or still in your hand. Worth saying, since the button simply
+     not being there is the sort of absence you cannot ask a question about. */
+  const noDivide = !isDraft(p) && live(p) && !canDivide(p)
+    ? `<p class="small muted" style="margin:16px 0 0">Dividing is offered once it is in the ground.
+       This one is <strong>${esc(p.status)}</strong>.</p>`
+    : "";
+
   return sheet("ps", {
     title: isDraft(p) ? "New plant" : `Plant <span class="num">${p.id}</span>`,
     sub: isDraft(p) ? "Nothing is added until you save" : esc(v.name || "Untitled cultivar"),
     pill: `<span class="pill ${pillClass(p.status)}" style="margin-top:6px">${p.status}</span>`,
-    body: fields + divisions,
+    body: fields + divisions + noDivide,
     stacked: asking,
     foot: asking
       ? `<div class="confirming">
@@ -2768,8 +2787,11 @@ function wireBloomSheet(app){
    string comparison is a date comparison. A transaction with no date at all sits
    outside any range rather than drifting to one end of it. */
 let ledRange = "all", ledFrom = "", ledTo = "";
+/* At most the two most recent seasons that actually have anything in them. Every year
+   the books have ever covered would be a rail that grows a button a year and pushes
+   Custom off the end of it — and Custom is what reaches the older ones. */
 const ledYears = () => [...new Set(DB.transactions.map(t => (t.date || "").slice(0,4))
-  .filter(Boolean))].sort().reverse();
+  .filter(Boolean))].sort().reverse().slice(0, 2);
 function ledBounds(){
   if(ledRange === "custom") return [ledFrom, ledTo];
   if(ledRange === "d30"){
@@ -2839,44 +2861,29 @@ function txnKindOf(x){
 
 /* The range lives behind a chip rather than on the screen: most visits want everything,
    and two date fields sitting open would cost a third of a phone screen to say so. */
-function renderLedger(app){
-  const all = DB.transactions;
-  const [lf, lt] = ledBounds();
-  const list = all.filter(x => inBounds(x, lf, lt)).slice().sort((a,b)=> (b.date||"").localeCompare(a.date||""));
-  const t = totals(list);
-  const ranged = !!(lf || lt);
-  const spent = list.filter(x => x.direction !== "income").length;
-
-  app.innerHTML = `
-  ${screenHead("Ledger", ranged
+/* What the range decides, and nothing else. Kept apart from the screen around it so a
+   change of dates can repaint these without rebuilding the two date boxes — a native
+   picker dies the moment the input under it is replaced, which is what made choosing a
+   date open the picker, take today, and shut again. */
+function ledSub(list, all){
+  return (!!(ledBounds()[0] || ledBounds()[1]))
     ? `<span class="num">${list.length}</span> of <span class="num">${all.length}</span> transactions`
-    : `<span class="num">${all.length}</span> transaction${all.length === 1 ? "" : "s"}`)}
-
-  <div class="mstats">
+    : `<span class="num">${all.length}</span> transaction${all.length === 1 ? "" : "s"}`;
+}
+function ledTiles(list){
+  const t = totals(list), spent = list.filter(x => x.direction !== "income").length;
+  return `
     ${metric("Out", fmt(t.out), `${spent} transaction${spent === 1 ? "" : "s"}`)}
     ${metric("In", fmt(t.inc), t.inc ? "revenue recorded" : "nothing yet")}
     ${metric("Allocated", fmt(t.alloc), "attached to plants")}
-    ${metric("Overhead", fmt(t.overhead), "unallocated")}
-  </div>
-
-  <div class="chips section">
-    <button class="fchip ${ledRange === "all" ? "on" : ""}" data-lr="all">All</button>
-    <button class="fchip ${ledRange === "d30" ? "on" : ""}" data-lr="d30">Last 30 days</button>
-    ${ledYears().map(y => `<button class="fchip ${ledRange === y ? "on" : ""}" data-lr="${y}">${y}</button>`).join("")}
-    <button class="fchip ${ledRange === "custom" ? "on" : ""}" data-lr="custom">Custom</button>
-  </div>
-  ${ledRange === "custom" ? `<div class="card section">
-    <div class="fieldrow pair" style="margin:0">
-      ${field("From", `<input type="date" id="lfrom" value="${ledFrom}">`)}
-      ${field("To", `<input type="date" id="lto" value="${ledTo}">`)}
-    </div>
-    <p class="small muted" style="margin:10px 0 0">Either end can be left empty — from a date
-      onwards, or everything up to one.</p>
-  </div>` : ""}
-  ${ranged ? `<p class="small muted" style="margin:10px 0 0">${ledWords(lf, lt)} — the figures
-    above follow the range.</p>` : ""}
-
-  <div class="card flush section">${list.length ? list.map(x => {
+    ${metric("Overhead", fmt(t.overhead), "unallocated")}`;
+}
+function ledNote(lf, lt){
+  return (lf || lt)
+    ? `${ledWords(lf, lt)} — the figures above follow the range.` : "";
+}
+function ledRows(list){
+  return list.length ? list.map(x => {
     const b = txBalance(x);
     return li({
       go: true,
@@ -2889,7 +2896,56 @@ function renderLedger(app){
               b.balanced ? "" : ` <span class="warn">off ${fmt(Math.abs(b.diff))}</span>`}`
           : esc(x.category || "—")}</span>`,
     });
-  }).join("") : `<div class="emptyrow">Nothing in that range.</div>`}</div>
+  }).join("") : `<div class="emptyrow">Nothing in that range.</div>`;
+}
+const ledList = () => {
+  const [lf, lt] = ledBounds();
+  return DB.transactions.filter(x => inBounds(x, lf, lt)).slice()
+    .sort((a,b) => (b.date||"").localeCompare(a.date||""));
+};
+/* Redraw what the dates decide, leaving the dates themselves alone. */
+function paintLedger(){
+  const list = ledList(), [lf, lt] = ledBounds();
+  const sub = $("#ledSub"), tiles = $("#ledTiles"), note = $("#ledNote"), rows = $("#ledRows");
+  if(sub) sub.innerHTML = ledSub(list, DB.transactions);
+  if(tiles) tiles.innerHTML = ledTiles(list);
+  if(note) note.innerHTML = ledNote(lf, lt);
+  if(rows){ rows.innerHTML = ledRows(list); wireLedRows(rows); }
+}
+function wireLedRows(root){
+  root.querySelectorAll("[data-tx]").forEach(el => el.onclick = () => {
+    openTxn = Number(el.dataset.tx); armDelete = armPlant = false; render();
+  });
+}
+
+function renderLedger(app){
+  const all = DB.transactions;
+  const [lf, lt] = ledBounds();
+  const list = ledList();
+  const ranged = !!(lf || lt);
+
+  app.innerHTML = `
+  ${screenHead("Ledger", `<span id="ledSub">${ledSub(list, all)}</span>`)}
+
+  <div class="mstats" id="ledTiles">${ledTiles(list)}</div>
+
+  <div class="chips section">
+    <button class="fchip ${ledRange === "all" ? "on" : ""}" data-lr="all">All</button>
+    <button class="fchip ${ledRange === "d30" ? "on" : ""}" data-lr="d30">30 days</button>
+    ${ledYears().map(y => `<button class="fchip ${ledRange === y ? "on" : ""}" data-lr="${y}">${y}</button>`).join("")}
+    <button class="fchip ${ledRange === "custom" ? "on" : ""}" data-lr="custom">Custom</button>
+  </div>
+  ${ledRange === "custom" ? `<div class="card section">
+    <div class="fieldrow pair" style="margin:0">
+      ${field("From", `<input type="date" id="lfrom" value="${ledFrom}">`)}
+      ${field("To", `<input type="date" id="lto" value="${ledTo}">`)}
+    </div>
+    <p class="small muted" style="margin:10px 0 0">Either end can be left empty — from a date
+      onwards, or everything up to one.</p>
+  </div>` : ""}
+  <p class="small muted" style="margin:10px 0 0" id="ledNote">${ledNote(lf, lt)}</p>
+
+  <div class="card flush section" id="ledRows">${ledRows(list)}</div>
 
   <p class="small muted section">Unallocated spending is overhead. Per-plant cost is derived from these
     allocations, never typed twice.</p>
@@ -2909,12 +2965,12 @@ function renderLedger(app){
        the empty boxes honestly mean — the chip is lit so it is clear why. */
     render();
   });
-  const lfEl = $("#lfrom"); if(lfEl) lfEl.onchange = e => { ledFrom = e.target.value; render(); };
-  const ltEl = $("#lto");   if(ltEl) ltEl.onchange = e => { ledTo   = e.target.value; render(); };
+  /* Repaint rather than re-render: the picker sits on top of the very input a render
+     would replace, and replacing it under the picker is what closed it. */
+  const lfEl = $("#lfrom"); if(lfEl) lfEl.onchange = e => { ledFrom = e.target.value; paintLedger(); };
+  const ltEl = $("#lto");   if(ltEl) ltEl.onchange = e => { ledTo   = e.target.value; paintLedger(); };
   $("#addTxn").onclick = () => { draftTxn = blankTxn("order"); render(); };
-  app.querySelectorAll("[data-tx]").forEach(el => el.onclick = () => {
-    openTxn = Number(el.dataset.tx); armDelete = armPlant = false; render();
-  });
+  wireLedRows(app);
   if(draftTxn) wireTxnSheet(app);
   else if(open) wireTxnView(app, open);
 }
@@ -3460,6 +3516,10 @@ function scaleParts(ftPerPx, targetPx){
 
 /* ---------- zoom / pan, in feet ---------- */
 let view = null, plotAR = null, fitW = null, plotW = null;
+/* A peony held on the map is asking whether to give up its square. Held here rather
+   than on the plant sheet, because the whole point is not having to open one. */
+let mapAsk = null, mapAskAt = 0;
+function closeMapAsk(){ mapAsk = null; }
 /* Whether the view is still where the app put it, or somewhere you moved it to.
    A fresh view gets re-framed when the pane is measured; a moved one is left alone. */
 let userMoved = false;
@@ -3558,6 +3618,23 @@ function syncPlotAR(){
    what is carried rides above the fingertip so you can see the square you are aiming
    at rather than covering it with your own hand. */
 
+/* Held rather than tapped, a peony on the map offers to give up its square without
+   anything being opened first. Deliberately small: a whole sheet for one question is
+   the very step this is here to save. */
+function unplaceAsk(id){
+  const p = findPlant(id);
+  if(!p || p.x === null) return "";
+  const v = cultivar(p.cultivarId);
+  return `<div class="psback" id="maBack"><div class="askcard">
+    <p class="small"><strong>${esc(v.name || "Plant " + p.id)}</strong> — take it off the map?
+      Its square at <span class="num">${p.x}, ${p.y}</span> ft comes free and it goes back to the
+      tray to be placed again. Nothing else about it changes, and it is still here.</p>
+    <div class="acts">
+      <button class="btn" id="maCancel">Cancel</button>
+      <button class="btn danger" id="maGo">Take Off the Map</button>
+    </div></div></div>`;
+}
+
 function renderMap(app){
   const P = DB.property;
   if(!view) homeView();
@@ -3594,7 +3671,12 @@ function renderMap(app){
            stroke="#C25A6D" stroke-width="${px(0.8)}" opacity=".55"/>`).join("") : ""}
         <rect id="ghostCell" x="0" y="0" width="0" height="0" fill="#C25A6D" fill-opacity=".2"
               stroke="#C25A6D" stroke-width="${px(2.2)}" opacity="0" pointer-events="none"/>
-        ${mapped().map(p => { const v = cultivar(p.cultivarId);
+        ${/* Zoomed out to the whole property the markers run together, and which one
+              covers which was down to the order the plants happen to sit in the file —
+              so a row of them overlapped every which way. Drawn west to east instead:
+              SVG paints in the order it reads, so the eastmost sits in front and the
+              whole row leans the same way. */
+          mapped().slice().sort((a,b) => a.x - b.x || a.y - b.y).map(p => { const v = cultivar(p.cultivarId);
           return `<g class="pin" data-pin="${p.id}"><title>${esc(v.name)}</title>
             <circle cx="${p.x}" cy="${p.y}" r="${hitR}" fill="transparent"/>
             ${focusId===p.id?`<circle data-focus="1" cx="${p.x}" cy="${p.y}" r="${R*2.1}" fill="none"
@@ -3628,6 +3710,7 @@ function renderMap(app){
 
   const sheetFor = openPlant !== null ? findPlant(openPlant) : null;
   if(sheetFor){ app.insertAdjacentHTML("beforeend", plantSheet(sheetFor)); wirePlantSheet(app, sheetFor); }
+  if(mapAsk !== null && !sheetFor) app.insertAdjacentHTML("beforeend", unplaceAsk(mapAsk));
 
   wireMap();
 }
@@ -3678,6 +3761,11 @@ function wireMap(){
   /* How far a finger has to travel before it is moving a peony rather than tapping
      one. Below this a graze across the map leaves everything where it was. */
   const DRAG_MIN = 7;
+  /* Long enough that resting a thumb on the way to a drag does not ask, short enough
+     that the question feels like an answer to the hold. The same as the plant sheet's. */
+  const HOLD_MS = 500;
+  let holdT = null;
+  const dropHold = () => clearTimeout(holdT);
   let settleT = null;
   /* Markers are drawn at a size that depends on the zoom, so once the fingers are off
      the map is redrawn properly. During the gesture only the viewBox moves. */
@@ -3733,13 +3821,26 @@ function wireMap(){
       moved = false;
       downPin = e.target.closest("[data-pin]");
       down = { x:e.clientX, y:e.clientY, clientX:e.clientX, clientY:e.clientY, pointerId:e.pointerId };
-      /* A finger on a peony is held open: a tap once it lifts, a move once it travels.
-         Which it turns out to be is not decided here. */
-      if(downPin){ mode = "pin"; return; }
+      /* A finger on a peony is held open: a tap once it lifts, a move once it travels,
+         and a question if it stays put long enough to mean it. Which it turns out to be
+         is not decided here. */
+      if(downPin){
+        mode = "pin";
+        const id = Number(downPin.dataset.pin);
+        clearTimeout(holdT);
+        holdT = setTimeout(() => {
+          if(mode !== "pin") return;                 // it became a drag; leave it alone
+          mode = null; pts.clear();
+          mapAsk = id; mapAskAt = Date.now();
+          render();
+        }, HOLD_MS);
+        return;
+      }
       mode = "pan";
       pan = { x0:view.x, y0:view.y, sx:e.clientX, sy:e.clientY,
               ftPerPx: view.w / plot.getBoundingClientRect().width };
     }else if(pts.size === 2){
+      dropHold();                                  // two fingers is a pinch, not a hold
       const [a,b] = [...pts.values()];
       const cx = (a.x + b.x)/2, cy = (a.y + b.y)/2;
       mode = "pinch"; moved = true;
@@ -3752,6 +3853,8 @@ function wireMap(){
     if(!pts.has(e.pointerId)) return;
     pts.set(e.pointerId, { x:e.clientX, y:e.clientY });
     if(down && Math.abs(e.clientX - down.x) + Math.abs(e.clientY - down.y) > 8) moved = true;
+    /* Travelling at all means this is not a hold any more, whatever else it becomes. */
+    if(down && Math.abs(e.clientX - down.x) + Math.abs(e.clientY - down.y) > 3) dropHold();
 
     if(mode === "drag"){ if(e.pointerId === drag.id) moveDrag(e); return; }
 
@@ -3791,6 +3894,7 @@ function wireMap(){
   });
 
   const lift = e => {
+    dropHold();
     if(!pts.has(e.pointerId) && mode !== "drag") return;
     pts.delete(e.pointerId);
 
@@ -3828,6 +3932,7 @@ function wireMap(){
   };
   plot.addEventListener("pointerup", lift);
   plot.addEventListener("pointercancel", e => {
+    dropHold();
     pts.delete(e.pointerId);
     if(mode === "drag" && drag){ endDrag(); }
     if(!pts.size) mode = null;
@@ -3845,6 +3950,30 @@ function wireMap(){
     }
     applyView(); paintScale(); settle();
   }, {passive:false});
+
+  /* ---- the question a held peony asks ---- */
+  /* The finger that started the hold is still down when the question appears, and its
+     lift lands on whatever is now under it. So the backdrop ignores anything that
+     arrives in the moment right after — otherwise letting go dismissed the question
+     that letting go had just raised. */
+  const maBack = $("#maBack");
+  if(maBack) maBack.onclick = e => {
+    if(e.target !== maBack) return;
+    if(Date.now() - mapAskAt < 450) return;
+    closeMapAsk(); render();
+  };
+  const maCancel = $("#maCancel");
+  if(maCancel) maCancel.onclick = () => { closeMapAsk(); render(); };
+  const maGo = $("#maGo");
+  if(maGo) maGo.onclick = () => {
+    const p = findPlant(mapAsk);
+    if(!p) { closeMapAsk(); return render(); }
+    const was = `${p.x}, ${p.y}`;
+    unplacePlant(p);
+    closeMapAsk();
+    render();
+    saveNow(`Plant ${p.id} taken off the map — ${was} ft is free`);
+  };
 
   /* ---- planting one out of the tray ---- */
   /* The rail scrolls sideways and a peony lifts out of it upwards, so the two gestures
@@ -3897,31 +4026,45 @@ function wireMap(){
     toast(`${cultivar(c.p.cultivarId).name || "Plant " + c.p.id} placed at ${c.at.x}, ${c.at.y} ft`);
   }
 
-  document.querySelectorAll("[data-place]").forEach(chip => {
+  /* One finger on the rail is one of three things, and the rail decides which rather
+     than leaving it to the browser: lifted out of the tray, scrolling the rail along,
+     or a tap that did neither.
+
+     Up is the whole of the test. The rail cannot scroll upwards, so any upward travel
+     is unambiguous whatever it is doing sideways at the same time — which is what makes
+     a diagonal drag straight out onto the map work as readily as a vertical one. */
+  const rail = $("#tray") && $("#tray").querySelector(".chips");
+  if(rail){
+    const LIFT_UP = 8, RAIL_SIDE = 10;
     let from = null;
-    chip.addEventListener("pointerdown", e => {
-      from = { x:e.clientX, y:e.clientY, id:e.pointerId };
+    rail.addEventListener("pointerdown", e => {
+      const chip = e.target.closest("[data-place]");
+      from = { x:e.clientX, y:e.clientY, id:e.pointerId, chip,
+               scroll:rail.scrollLeft, how:null };
+      rail.setPointerCapture(e.pointerId);
     });
-    chip.addEventListener("pointermove", e => {
+    rail.addEventListener("pointermove", e => {
       if(carry){ if(e.pointerId === carry.id){ e.preventDefault(); carryTo(e); } return; }
       if(!from || e.pointerId !== from.id) return;
-      /* Sideways is the rail scrolling under the finger; upwards is a peony coming out
-         of it. The browser keeps the one it is entitled to and sends the rest here. */
       const dx = e.clientX - from.x, dy = e.clientY - from.y;
-      if(dy < -10 && Math.abs(dy) > Math.abs(dx)){ e.preventDefault(); startCarry(chip, e); }
+      if(!from.how){
+        if(from.chip && dy <= -LIFT_UP) from.how = "lift";
+        else if(Math.abs(dx) >= RAIL_SIDE) from.how = "rail";
+      }
+      if(from.how === "lift"){ e.preventDefault(); startCarry(from.chip, e); }
+      else if(from.how === "rail") rail.scrollLeft = from.scroll - dx;
     });
-    chip.addEventListener("pointerup", e => {
-      if(carry && e.pointerId === carry.id) endCarry(true);
-      else if(from && e.pointerId === from.id
-              && Math.abs(e.clientX - from.x) + Math.abs(e.clientY - from.y) < 8)
+    rail.addEventListener("pointerup", e => {
+      if(carry && e.pointerId === carry.id){ endCarry(true); from = null; return; }
+      if(from && e.pointerId === from.id && !from.how && from.chip)
         toast("Drag it up onto the map");
       from = null;
     });
-    chip.addEventListener("pointercancel", e => {
+    rail.addEventListener("pointercancel", e => {
       if(carry && e.pointerId === carry.id) endCarry(false);
       from = null;
     });
-  });
+  }
 }
 
 /* ---------- boot ---------- */
