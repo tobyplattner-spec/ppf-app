@@ -2304,19 +2304,11 @@ function plantSheet(p){
   /* Asked in the footer rather than beside the position: there is room there for what
      it actually does, and it is the same place a bloom day is asked to be deleted. */
   const asking = armUnplace && canUnplace(p);
-  /* Dividing is something done to a crown in the ground, so it is not offered for a
-     root still on order or still in your hand. Worth saying, since the button simply
-     not being there is the sort of absence you cannot ask a question about. */
-  const noDivide = !isDraft(p) && live(p) && !canDivide(p)
-    ? `<p class="small muted" style="margin:16px 0 0">Dividing is offered once it is in the ground.
-       This one is <strong>${esc(p.status)}</strong>.</p>`
-    : "";
-
   return sheet("ps", {
     title: isDraft(p) ? "New plant" : `Plant <span class="num">${p.id}</span>`,
     sub: isDraft(p) ? "Nothing is added until you save" : esc(v.name || "Untitled cultivar"),
     pill: `<span class="pill ${pillClass(p.status)}" style="margin-top:6px">${p.status}</span>`,
-    body: fields + divisions + noDivide,
+    body: fields + divisions,
     stacked: asking,
     foot: asking
       ? `<div class="confirming">
@@ -2794,10 +2786,6 @@ const ledYears = () => [...new Set(DB.transactions.map(t => (t.date || "").slice
   .filter(Boolean))].sort().reverse().slice(0, 2);
 function ledBounds(){
   if(ledRange === "custom") return [ledFrom, ledTo];
-  if(ledRange === "d30"){
-    const d = new Date(); d.setDate(d.getDate() - 29);
-    return [d.toISOString().slice(0,10), ""];
-  }
   if(/^\d{4}$/.test(ledRange)) return [ledRange + "-01-01", ledRange + "-12-31"];
   return ["", ""];
 }
@@ -2808,7 +2796,6 @@ const inBounds = (x, f, t) =>
    noise. A range with one open end is not a pair of dates and is not shown as one. */
 function ledWords(f, t){
   if(/^\d{4}$/.test(ledRange)) return `all of ${ledRange}`;
-  if(ledRange === "d30") return `${fmtDate(f)} onwards`;
   return !f && !t ? "every transaction"
     : f && t ? `${fmtDate(f)} to ${fmtDate(t)}`
     : f ? `${fmtDate(f)} onwards`
@@ -2931,7 +2918,6 @@ function renderLedger(app){
 
   <div class="chips section">
     <button class="fchip ${ledRange === "all" ? "on" : ""}" data-lr="all">All</button>
-    <button class="fchip ${ledRange === "d30" ? "on" : ""}" data-lr="d30">30 days</button>
     ${ledYears().map(y => `<button class="fchip ${ledRange === y ? "on" : ""}" data-lr="${y}">${y}</button>`).join("")}
     <button class="fchip ${ledRange === "custom" ? "on" : ""}" data-lr="custom">Custom</button>
   </div>
