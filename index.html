@@ -204,6 +204,7 @@ tbody tr[data-tx],tbody tr[data-goplant]{cursor:pointer}
 .pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:3px 9px;border-radius:20px;white-space:nowrap}
 .pill.est{background:var(--rose-tint);color:var(--rose-dark)}
 .pill.plant{background:#EDEFEA;color:#4A5A3C}
+.pill.plan{background:#F7F8F5;color:#6E7C61;box-shadow:inset 0 0 0 1px #DBE0D3}
 .pill.order{background:#F2EEE9;color:#6B5B4A}
 .pill.other{background:#EFEFF0;color:var(--graphite-60)}
 .loclink,.locink{color:var(--rose-dark);font-variant-numeric:tabular-nums;border-bottom:1px dotted var(--rose)}
@@ -372,9 +373,13 @@ body.sandbox .topbar,body.sandbox header,body.sandbox nav{background:#4A3A3E}
 
 /* ---------- constants ---------- */
 const SEASONS = ["Very Early","Early","Early-Mid","Mid","Mid-Late","Late","Very Late"];
-/* Ready to Plant is a root in your hands that you made rather than bought: lifted,
-   cut and waiting on a hole. It sits beside Received because it is the same stage. */
-const STATUSES = ["Ordered","Received","Ready to Plant","Planted","Established","Divided","Lost","Sold"];
+/* Four of these are one road, and the app walks it for you: a root you have is Acquired,
+   a square on the map makes it Planned, the day it goes in makes it Planted, and the
+   calendar makes it Established. Divided comes off the divide. Lost and Sold you say. */
+const STATUSES = ["Acquired","Planned","Planted","Established","Divided","Lost","Sold"];
+const ACQUIRED = "Acquired", PLANNED = "Planned", PLANTED = "Planted";
+/* A root you have and have not put in yet. Both stages answer to one click. */
+const NOT_YET_IN = [ACQUIRED, PLANNED];
 const BLOOM_TYPES = ["Single","Semi-Double","Double","Bomb","Japanese","Anemone"];
 const PLANT_TYPES = ["Herbaceous","Intersectional (Itoh)","Tree"];
 const STRENGTH = ["Self-supporting","Needs support","Flops"];
@@ -555,31 +560,44 @@ function txBalance(t){
 function activePlants(){ return DB.plants.filter(p => !["Lost","Sold","Divided"].includes(p.status)); }
 
 /* ---------- a root settles on its own ---------- */
-/* Roots go in in the fall and are left alone for two springs; by the third the plant is
-   properly settled. One that went in before midsummer counts that spring as its first.
-   Nothing else in the app ever moves a plant on from Planted, so the calendar does it. */
-const firstSpring = d => Number(d.slice(0,4)) + (Number(d.slice(5,7)) >= 7 ? 1 : 0);
-const settledOn = d => `${firstSpring(d) + 2}-06-01`;      // its third spring, once the season is under way
+/* A root is a new plant through the summer it goes in and the summer after. By the June
+   of the second year after that one it is simply part of the garden, and the app says so
+   without being asked: nothing else ever moves a plant on from Planted, so the calendar
+   does. One pass down the plant list on open, which costs nothing worth measuring, and
+   it only writes a commit on the day it actually finds something to move. */
+const settledOn = d => `${Number(d.slice(0,4)) + 2}-06-01`;   // its second June after the year it went in
 function ageIntoEstablished(){
   const on = today();
   const moved = DB.plants.filter(p =>
-    p.status === "Planted" && p.plantedDate && settledOn(p.plantedDate) <= on);
+    p.status === PLANTED && p.plantedDate && settledOn(p.plantedDate) <= on);
   for(const p of moved) p.status = "Established";
   return moved.length;
 }
-/* Wishlist was dropped. Anything left on one reads as something you meant to have. */
-function retireWishlist(){
-  const old = DB.plants.filter(p => p.status === "Wishlist");
-  for(const p of old) p.status = "Ordered";
+/* Ordered, Received, Ready to Plant and Wishlist were four names for one fact: a root
+   you have, or will have, that is not in the ground. They are all Acquired now — except
+   that one already standing on the map was always Planned, so it finally says so. */
+const RETIRED = ["Ordered","Received","Ready to Plant","Wishlist"];
+function retireOldStatuses(){
+  const old = DB.plants.filter(p => RETIRED.includes(p.status));
+  for(const p of old) p.status = p.x === null ? ACQUIRED : PLANNED;
   return old.length;
 }
 /* Everything that has to be put right the moment a file is opened, from either way in.
    A change you did not make says so, so it is never a surprise. */
 function settleOnLoad(){
-  const settled = ageIntoEstablished(), legacy = retireWishlist();
+  const settled = ageIntoEstablished(), legacy = retireOldStatuses();
   if(settled) saveNow(`${settled} plant${settled === 1 ? " is" : "s are"} now established`);
   else if(legacy) saveNow(null, true);
   return settled;
+}
+/* ---------- a square on the map is the plan ---------- */
+/* Dropping a root you have onto the map is the only thing that says where it is going,
+   so it is the only thing that needs to say so: the square and the status are one fact,
+   and moving a peony that is already in the ground moves nothing but the peony. */
+function planOnPlace(p){
+  if(p.status !== ACQUIRED) return false;
+  p.status = PLANNED;
+  return true;
 }
 function nextPlantId(){ return DB.plants.reduce((m,p)=>Math.max(m,p.id),0) + 1; }
 function nextTxId(){ return DB.transactions.reduce((m,t)=>Math.max(m,t.id),0) + 1; }
@@ -612,8 +630,10 @@ function seasonTotals(year){
 
 function pillClass(s){
   if(s==="Established") return "est";
-  if(s==="Planted"||s==="Received"||s==="Ready to Plant") return "plant";
-  if(s==="Ordered") return "order";
+  if(s===PLANTED) return "plant";
+  /* Planned is drawn as the outline of Planted, because that is exactly what it is. */
+  if(s===PLANNED) return "plan";
+  if(s===ACQUIRED) return "order";
   return "other";
 }
 
@@ -862,13 +882,13 @@ function outstanding(){
   const act = activePlants(), out = [];
   const add = (n, what, href) => { if(n) out.push({ n, what, href }); };
 
-  add(act.filter(p => p.status === "Ordered").length, "ordered and not yet received", "#/ledger");
-  add(act.filter(p => p.status === "Ready to Plant").length,
-      "divided and waiting to go back in the ground", "#/collection");
-  add(act.filter(p => ["Received","Ordered","Ready to Plant"].includes(p.status) && p.x !== null).length,
-      "placed on the map but not yet in the ground", "#/map");
-  add(act.filter(p => p.x === null).length, "without a square on the map", "#/map");
-  add(act.filter(p => p.status === "Planted" && !p.plantedDate).length,
+  add(act.filter(p => p.status === ACQUIRED).length, "in hand and not yet on the map", "#/map");
+  add(act.filter(p => p.status === PLANNED).length,
+      "with a square on the map and not yet in the ground", "#/map");
+  /* Acquired says the same thing better a line above, so it is not said twice here. */
+  add(act.filter(p => p.x === null && p.status !== ACQUIRED).length,
+      "without a square on the map", "#/map");
+  add(act.filter(p => p.status === PLANTED && !p.plantedDate).length,
       "planted with no date recorded", "#/collection");
   add(DB.cultivars.filter(c => !c.bloomSeason).length, "cultivars with no bloom season", "#/collection");
 
@@ -1291,7 +1311,7 @@ function newCultivar(name){
   return v;
 }
 function blankPlant(cultivarId, extra = {}){
-  return { id: nextPlantId(), cultivarId, status: "Ordered", source: null,
+  return { id: nextPlantId(), cultivarId, status: ACQUIRED, source: null,
     acquiredDate: null, plantedDate: null, eyeCount: null,
     x: null, y: null, parentPlantId: null, notes: null, ...extra };
 }
@@ -1632,6 +1652,21 @@ function renderCultivar(app, id){
   };
 }
 
+/* ---------- one root, into the ground ---------- */
+/* A peony with a square is one fact short of being planted, and the fact is the day. So
+   the sheet asks for the day and nothing else, in the foot where the button stood. */
+let armPlantOne = false;
+const canPlantOne = p => !isDraft(p) && p.status === PLANNED;
+function plantOne(p, date){
+  if(!date) return toast("Needs a date");
+  if(p.status !== PLANNED) return toast("That plant is not waiting on a hole");
+  p.status = PLANTED; p.plantedDate = date;
+  armPlantOne = false;
+  markDirty(); render();
+  saveNow(`Plant ${p.id} planted on ${fmtDate(date)}`);
+  return 1;
+}
+
 /* ---------- the plant sheet ---------- */
 /* A plant answers a narrow set of questions: which root is this, where did it come
    from, when did it go in, where is it now, what did it cost. Everything about the
@@ -1643,7 +1678,7 @@ let draftPlant = null;
 const findPlant = id => (draftPlant && draftPlant.id === id) ? draftPlant : DB.plants.find(x => x.id === id);
 const isDraft = p => !!draftPlant && draftPlant.id === p.id;
 function discardDraft(){ draftPlant = null; openPlant = null; editing = null;
-  draftDivide = null; armDividePlant = false; }
+  draftDivide = null; armDividePlant = false; armPlantOne = false; }
 
 function plantSheet(p){
   if(dividing(p)) return dividePanel(p);       // the same panel, asking a different question
@@ -1657,9 +1692,10 @@ function plantSheet(p){
   const cost = allocs.reduce((s,x) => s + x.a.amount, 0);
   const parent = DB.plants.find(o => o.id === p.parentPlantId);
 
-  /* The same two moments an order gets: they were cut together, and one weekend they
-     all go in. Divisions already planted are left out of the count. */
-  const kids = divisionsOf(p.id), ready = kids.filter(k => k.status === READY).length;
+  /* The same moment an order gets: they were cut together, and one weekend they all go
+     in. Divisions already in the ground are left out of the count. */
+  const kids = divisionsOf(p.id), ready = kids.filter(k => NOT_YET_IN.includes(k.status)).length;
+  const planting = armPlantOne && canPlantOne(p);
   const kidActs = !ready ? ""
     : armDividePlant
       ? `<div class="row" style="margin:14px 0 2px;align-items:flex-end">
@@ -1727,14 +1763,20 @@ function plantSheet(p){
     </div>
 
     <div class="psfoot">
-      <span class="small muted">${isDraft(p) ? "" : (cost
+      <span class="small muted">${planting
+        ? "The day it went in the ground. Established follows on its own."
+        : isDraft(p) ? "" : (cost
         ? `Cost <span class="num">${fmt(cost)}</span> · ${allocs.map(x => esc(x.t.counterparty)).join(", ")}`
         : "Nothing allocated to this plant")}</span>
-      <div class="acts">
-        <button class="btn danger" id="delPlant">${isDraft(p) ? "Discard" : "Delete"}</button>
-        ${canDivide(p) ? `<button class="btn" id="divide_plant">Divide</button>` : ""}
-        ${on ? `<button class="btn primary" id="save_plant">Save</button>`
-             : `<button class="btn" id="edit_plant">Edit</button>`}
+      <div class="acts">${planting
+        ? `<input type="date" required id="ppDate" value="${today()}" style="width:auto">
+           <button class="btn" id="ppCancel">Cancel</button>
+           <button class="btn primary" id="ppGo">Plant</button>`
+        : `<button class="btn danger" id="delPlant">${isDraft(p) ? "Discard" : "Delete"}</button>
+           ${canPlantOne(p) ? `<button class="btn" id="plant_plant">Plant</button>` : ""}
+           ${canDivide(p) ? `<button class="btn" id="divide_plant">Divide</button>` : ""}
+           ${on ? `<button class="btn primary" id="save_plant">Save</button>`
+                : `<button class="btn" id="edit_plant">Edit</button>`}`}
       </div>
     </div>
   </div></div>`;
@@ -1747,7 +1789,7 @@ function wirePlantSheet(app, p){
   const close = () => {
     const onMap = location.hash.startsWith("#/map");
     const cid = p.cultivarId;
-    clearNew(); armDividePlant = false;
+    clearNew(); armDividePlant = false; armPlantOne = false;
     if(isDraft(p)) discardDraft(); else { editing = null; openPlant = null; }
     if(onMap) return render();
     location.hash = "#/collection/" + cid;
@@ -1758,17 +1800,26 @@ function wirePlantSheet(app, p){
   bindEdits(app);
   wirePicker($("#p_source"), "psource",           // stands in for the generic binding
     v => { p.source = v.trim() || null; }, markDirty);   // no re-render: it would eat the click on Save
-  if(isEditing("p:" + p.id)) $("#save_plant").onclick = () => {
+  /* The whole footer is gone while the question is up, so each button is asked for
+     rather than assumed — the same way the phone asks for its own. */
+  const on = (sel, fn) => { const el = $(sel); if(el) el.onclick = fn; };
+  if(isEditing("p:" + p.id)) on("#save_plant", () => {
     if(isDraft(p)){ DB.plants.push(p); draftPlant = null; markDirty(); }
     commitEdit();
-  };
-  else $("#edit_plant").onclick = () => beginEdit("p:" + p.id);
+  });
+  else on("#edit_plant", () => beginEdit("p:" + p.id));
   const dv = $("#divide_plant");
   if(dv) dv.onclick = () => { editing = null; armDividePlant = false; draftDivide = blankDivide(p); render(); };
+  const pb = $("#plant_plant");
+  if(pb) pb.onclick = () => { editing = null; armDividePlant = false; armPlantOne = true; render(); };
+  const pc = $("#ppCancel");
+  if(pc) pc.onclick = () => { armPlantOne = false; render(); };
+  const pg = $("#ppGo");
+  if(pg) pg.onclick = () => plantOne(p, $("#ppDate").value);
 
   /* One click to the division, and the "Divided from" link is the way back. */
   app.querySelectorAll("[data-goplant]").forEach(tr => tr.onclick = () => {
-    editing = null; armDividePlant = false;
+    editing = null; armDividePlant = false; armPlantOne = false;
     location.hash = "#/plant/" + tr.dataset.goplant;
   });
   const mp = $("#dvPlant");
@@ -1777,7 +1828,7 @@ function wirePlantSheet(app, p){
   if(mc) mc.onclick = () => { armDividePlant = false; render(); };
   const mg = $("#dvPlantGo");
   if(mg) mg.onclick = () => markDivisionsPlanted(p.id, $("#dvPlantDate").value);
-  $("#delPlant").onclick = () => {
+  on("#delPlant", () => {
     if(isDraft(p)) return close();            // never existed; nothing to confirm
     const n = DB.transactions.reduce((s,t) => s + (t.allocations||[]).filter(a =>
       a.target === "plant" && a.targetId === p.id).length, 0);
@@ -1786,7 +1837,7 @@ function wirePlantSheet(app, p){
     deletePlant(p.id); editing = null; openPlant = null;
     if(onMap) return render();
     location.hash = "#/collection/" + cid;
-  };
+  });
 }
 
 /* ---------- dividing ---------- */
@@ -1795,7 +1846,6 @@ function wirePlantSheet(app, p){
    of its own pointing back at it. Nothing is written until the button at the foot, so
    opening the question and thinking better of it costs nothing. */
 let draftDivide = null, armDividePlant = false;
-const READY = "Ready to Plant";
 
 /* A division stays attached to the crown it came off, so the parent's page is where the
    batch is handled: they were lifted together and they go back in together. */
@@ -1805,8 +1855,8 @@ const divisionsOf = id => DB.plants.filter(p => p.parentPlantId === id).sort((a,
    put in on its own day keeps the date you gave it. */
 function markDivisionsPlanted(id, date){
   let n = 0;
-  for(const k of divisionsOf(id)) if(k.status === READY){
-    k.status = "Planted";
+  for(const k of divisionsOf(id)) if(NOT_YET_IN.includes(k.status)){
+    k.status = PLANTED;
     k.plantedDate = date || null;
     n++;
   }
@@ -1846,9 +1896,9 @@ function commitDivide(p){
   if(!d.date) return toast("Needs a date");
   if(!DB.plants.some(x => x.id === p.id)) return toast("That plant is gone");
   /* A division is a root in a crate, not a plant in the ground: the day it was cut is
-     the day it was acquired, and Planted stays empty until it really is. */
+     the day it was acquired, and it joins the same road a bought root joins. */
   const made = d.lines.map(l => newPlant(p.cultivarId, {
-    status: "Ready to Plant", acquiredDate: d.date, plantedDate: null,
+    status: ACQUIRED, acquiredDate: d.date, plantedDate: null,
     eyeCount: divideEyes(l), parentPlantId: p.id }));
   /* Divided is not living, so the map stops drawing it and its square comes free for
      one of the pieces to go back into. */
@@ -1889,8 +1939,9 @@ function dividePanel(p){
       <p class="small muted" style="margin:10px 0 0">Plant <span class="num">${p.id}</span> becomes Divided and keeps its
         cost and its history${p.x === null ? "" : `, and its square at ${p.x}, ${p.y} ft comes free`}. The
         <span class="num">${t.n}</span> new ${t.n === 1 ? "root is" : "roots are"} recorded as
-        <strong>Ready to Plant</strong>, acquired on the date above and not planted until you say so — mark
-        ${t.n === 1 ? "it" : "them"} Planted when ${t.n === 1 ? "it goes" : "they go"} in the ground.</p>
+        <strong>Acquired</strong> on the date above. Drop ${t.n === 1 ? "it" : "them"} on the map to claim
+        ${t.n === 1 ? "a square" : "squares"}, and plant ${t.n === 1 ? "it" : "them"} when
+        ${t.n === 1 ? "it goes" : "they go"} in the ground.</p>
     </div>
 
     <div class="psfoot">
@@ -2274,28 +2325,26 @@ function renderLedger(app){
 let openTxn = null, armDelete = false, armPlant = false;
 function closeTxnView(){ openTxn = null; armDelete = armPlant = false; editing = null; render(); }
 
-/* An order is a batch, and a batch moves through the season together: the box lands,
-   then one weekend they all go in. These are the two moments worth one click. */
+/* An order is a batch, and a batch goes in the ground together: one weekend, one date,
+   one click. That is the only moment here worth a button of its own — a box that has
+   landed is not a stage, it is a root in your hands, which is where every root starts. */
 const orderPlants = x => (x.allocations || [])
   .filter(a => a.target === "plant")
   .map(a => DB.plants.find(p => p.id === a.targetId))
   .filter(Boolean);
-const BEFORE_RECEIVED = ["Ordered"];
-const BEFORE_PLANTED  = ["Ordered","Received"];
 
 /* Roots already in the ground are left alone — this only ever moves things forward. */
-function markOrder(x, to, date){
-  const from = to === "Received" ? BEFORE_RECEIVED : BEFORE_PLANTED;
+function markOrder(x, date){
   let n = 0;
-  for(const p of orderPlants(x)) if(from.includes(p.status)){
-    p.status = to;
-    if(to === "Planted") p.plantedDate = date || null;
+  for(const p of orderPlants(x)) if(NOT_YET_IN.includes(p.status)){
+    p.status = PLANTED;
+    p.plantedDate = date || null;
     n++;
   }
   armPlant = false;
-  if(!n){ toast(`Nothing left to mark ${to.toLowerCase()}`); return 0; }
+  if(!n){ toast("Nothing left to mark planted"); return 0; }
   markDirty(); render();
-  saveNow(`${n} root${n === 1 ? "" : "s"} marked ${to.toLowerCase()}`);
+  saveNow(`${n} root${n === 1 ? "" : "s"} marked planted`);
   return n;
 }
 function stageSummary(ps){
@@ -2321,8 +2370,7 @@ function txnView(x){
   });
   const n = rows.length, roots = `${n} plant${n === 1 ? "" : "s"}`;
   const ps = orderPlants(x);
-  const canReceive = ps.filter(p => BEFORE_RECEIVED.includes(p.status)).length;
-  const canPlant   = ps.filter(p => BEFORE_PLANTED.includes(p.status)).length;
+  const canPlant = ps.filter(p => NOT_YET_IN.includes(p.status)).length;
   const orderActs = armPlant
     ? `<div class="row" style="margin:14px 0 2px;align-items:flex-end">
          <div style="max-width:190px">${field("Planted on",
@@ -2330,10 +2378,9 @@ function txnView(x){
          <button class="btn" id="tvPlantCancel" style="margin-bottom:1px">Cancel</button>
          <button class="btn primary" id="tvPlantGo" style="margin-bottom:1px">Mark ${canPlant} Planted</button>
        </div>`
-    : (canReceive || canPlant)
+    : canPlant
       ? `<div class="row" style="margin:14px 0 2px">
-           ${canReceive ? `<button class="btn" id="tvReceive">Mark ${canReceive} Received</button>` : ""}
-           ${canPlant ? `<button class="btn" id="tvPlant">Mark ${canPlant} Planted</button>` : ""}
+           <button class="btn" id="tvPlant">Mark ${canPlant} Planted</button>
          </div>`
       : "";
 
@@ -2408,11 +2455,10 @@ function wireTxnView(app, x){
 
     if(armPlant){
       $("#tvPlantCancel").onclick = () => { armPlant = false; render(); };
-      $("#tvPlantGo").onclick = () => markOrder(x, "Planted", $("#tvPlantDate").value);
+      $("#tvPlantGo").onclick = () => markOrder(x, $("#tvPlantDate").value);
     }else{
-      const rec = $("#tvReceive"), pl = $("#tvPlant");
-      if(rec) rec.onclick = () => markOrder(x, "Received");
-      if(pl)  pl.onclick  = () => { armPlant = true; editing = null; render(); };
+      const pl = $("#tvPlant");
+      if(pl) pl.onclick = () => { armPlant = true; editing = null; render(); };
     }
     /* Leave edit mode to ask the question: an editable form behind "delete this?"
        reads as though the edit is what is being confirmed. */
@@ -2667,7 +2713,7 @@ function commitOrder(filled, ship, tax = 0){
     if(!v){
       v = newCultivar(r.name);          // one definition of what a cultivar is
     }
-    DB.plants.push({ id:pid, cultivarId:v.id, label:null, status:"Ordered", source:vendor,
+    DB.plants.push({ id:pid, cultivarId:v.id, label:null, status:ACQUIRED, source:vendor,
       acquiredDate:draftTxn.date || null, plantedDate:null, eyeCount:null,
       x:null, y:null, soil:null, parentPlantId:null, diseaseIssues:null, notes:null });
     allocations.push({ target:"plant", targetId:pid, amount: r.amount/100 });
@@ -3123,7 +3169,9 @@ function wireMap(){
         else return;                                   // dragged off the map — cancel
         if(!target) return toast("No free square there");
         p.x = target.x; p.y = target.y;
+        const planned = planOnPlace(p);
         markDirty(); render();
+        if(planned) toast(`${cultivar(p.cultivarId).name || "Plant " + p.id} is planned for ${p.x}, ${p.y} ft`);
       };
       el.addEventListener("pointermove", move);
       el.addEventListener("pointerup", drop, {once:true});
