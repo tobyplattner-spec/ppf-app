@@ -3011,9 +3011,12 @@ function renderMap(app){
     <div class="plot" id="plot">
       <svg id="svg" viewBox="${view.x} ${view.y} ${view.w} ${h}" preserveAspectRatio="xMidYMid meet">
         ${baseMapFor(view.w, h)}
-        ${cellPx >= 7 ? mapped().map(p=>`<rect data-cell="${p.id}" x="${cellX(p)*CELL()}" y="${cellY(p)*CELL()}"
-           width="${CELL()}" height="${CELL()}" fill="#C25A6D" fill-opacity=".10"
-           stroke="#C25A6D" stroke-width="${px(0.8)}" opacity=".55"/>`).join("") : ""}
+        ${/* The square takes the colour of the peony standing in it, so a plan reads as a
+              plan whole — outline and wash together — rather than a charcoal dot sitting
+              inside a rose square saying two different things at once. */
+          cellPx >= 7 ? mapped().map(p=>`<rect data-cell="${p.id}" x="${cellX(p)*CELL()}" y="${cellY(p)*CELL()}"
+           width="${CELL()}" height="${CELL()}" fill="${pinFill(p)}" fill-opacity=".10"
+           stroke="${pinFill(p)}" stroke-width="${px(0.8)}" opacity=".55"/>`).join("") : ""}
         ${mapped().map(p => { const v = cultivar(p.cultivarId);
           return `<g class="pin" data-pin="${p.id}"><title>${esc(v.name)}</title>
             <circle cx="${p.x}" cy="${p.y}" r="${hitR}" fill="transparent"/>

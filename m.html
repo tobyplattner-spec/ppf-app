@@ -261,8 +261,6 @@ label{display:block;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-t
 .loclink,.locink{color:var(--rose-dark);font-variant-numeric:tabular-nums;border-bottom:1px dotted var(--rose)}
 /* A position is a link on a tap and a question on a hold, so the hold must not also
    bring up iOS's own copy-and-share menu over the top of it. */
-.locink[data-unplace]{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
-.locink.holding{background:var(--rose-tint);border-radius:5px;box-shadow:0 0 0 4px var(--rose-tint)}
 .seasontag{font-size:16px;font-weight:700;color:var(--graphite-60)}
 .subline{font-size:13.5px;color:var(--graphite-60);margin-top:5px;line-height:1.45}
 .cell{display:flex;align-items:center;min-width:0}
@@ -1195,7 +1193,7 @@ window.addEventListener("hashchange", () => {
   /* Moving to another screen closes an open plant sheet; opening one over the map
      does not change the hash, so it survives there. */
   if(!location.hash.startsWith("#/plant/") && !draftPlant){
-    openPlant = null; editing = null; armDividePlant = false; armUnplace = false; discardDivide(); }
+    openPlant = null; editing = null; armDividePlant = false; armPlantOne = false; discardDivide(); }
   if(!location.hash.startsWith("#/collection/")){ photoFor = null; draftCrop = null; }
   if(!location.hash.startsWith("#/ledger")){ openTxn = null; armDelete = armPlant = false; }
   if(!location.hash.startsWith("#/bloom")) discardBloomDraft();
@@ -2237,21 +2235,20 @@ let draftPlant = null;
 const findPlant = id => (draftPlant && draftPlant.id === id) ? draftPlant : DB.plants.find(x => x.id === id);
 const isDraft = p => !!draftPlant && draftPlant.id === p.id;
 function discardDraft(){ draftPlant = null; openPlant = null; editing = null;
-  draftDivide = null; armDividePlant = false; armUnplace = false; armPlantOne = false; }
+  draftDivide = null; armDividePlant = false; armPlantOne = false; }
 
 /* A peony can leave the map without leaving the record: the square comes free and it
    goes back to the tray, which is the difference between moving it and deleting it.
-   Asked for by holding the position rather than by a button, because it is rare and a
-   button for it would sit there being the wrong answer every other day. */
-let armUnplace = false;
-const canUnplace = p => live(p) && p.x !== null;
+   Asked for in one place only — by holding the peony itself on the map, where the square
+   being given up is the thing under your thumb. The plant's own page used to ask it too,
+   off a hold on the position, which put a destructive answer under a finger that was
+   only reading. Somewhere you go to look at a peony is not somewhere to lose its square. */
 function unplacePlant(p){
   p.x = null; p.y = null;
   /* The square was the whole of the plan, so giving up the square gives up the plan and
      leaves exactly what was there before it was dropped: a root in your hands. */
   if(p.status === PLANNED) p.status = ACQUIRED;
   if(focusId === p.id) focusId = null;          // the ring has nothing left to point at
-  armUnplace = false;
   markDirty();
 }
 
@@ -2272,7 +2269,9 @@ function plantSheet(p){
     /* A crown that has been divided away is not on the map any more, so where it stood
        is a fact about the past rather than somewhere to go. */
     : !live(p) ? `was at ${p.x}, ${p.y} ft`
-    : `<a class="locink" href="#/map/${p.id}" data-unplace="${p.id}">${p.x}, ${p.y} ft</a>`;
+    /* Straight to the peony on the map, which is where its square is given up if it
+       is going to be. */
+    : `<a class="locink" href="#/map/${p.id}">${p.x}, ${p.y} ft</a>`;
   const from = parent
     ? `<a class="locink" href="#/plant/${parent.id}">#${parent.id} ${esc(cultivar(parent.cultivarId).name || "Unnamed cultivar")}</a>`
     : null;
@@ -2345,26 +2344,14 @@ function plantSheet(p){
          its own day, set on its own page.`
       : `Every division off this crown is in the ground.`}</p>` : "";
 
-  /* Asked in the footer rather than beside the position: there is room there for what
-     it actually does, and it is the same place a bloom day is asked to be deleted. */
-  const asking = armUnplace && canUnplace(p);
   const planting = armPlantOne && canPlantOne(p);
   return sheet("ps", {
     title: isDraft(p) ? "New plant" : `Plant <span class="num">${p.id}</span>`,
     sub: isDraft(p) ? "Nothing is added until you save" : esc(v.name || "Untitled cultivar"),
     pill: `<span class="pill ${pillClass(p.status)}" style="margin-top:6px">${p.status}</span>`,
     body: fields + divisions,
-    stacked: asking || planting,
-    foot: asking
-      ? `<div class="confirming">
-           <p class="small">Take this plant off the map? Its square at <span class="num">${p.x}, ${p.y}</span> ft
-             comes free and it goes back to the tray to be placed again. Nothing else about it changes, and
-             it is still here.</p>
-           <div class="acts">
-             <button class="btn" id="unpCancel">Cancel</button>
-             <button class="btn danger" id="unpGo">Take Off the Map</button>
-           </div></div>`
-      : planting
+    stacked: planting,
+    foot: planting
       ? `<div class="confirming">
            <p class="small">The day plant <span class="num">${p.id}</span> went in the ground${
              p.x === null ? "" : ` at <span class="num">${p.x}, ${p.y}</span> ft`}. That is the whole of
@@ -2427,7 +2414,7 @@ function wirePlantSheet(app, p){
   const close = () => {
     const onMap = location.hash.startsWith("#/map");
     const cid = p.cultivarId;
-    clearNew(); armDividePlant = false; armUnplace = false; armPlantOne = false;
+    clearNew(); armDividePlant = false; armPlantOne = false;
     if(isDraft(p)) discardDraft(); else { editing = null; openPlant = null; }
     if(onMap) return render();
     location.hash = "#/collection/" + cid;
@@ -2451,33 +2438,6 @@ function wirePlantSheet(app, p){
   on("#plant_plant", () => { editing = null; armDividePlant = false; armPlantOne = true; render(); });
   on("#ppCancel", () => { armPlantOne = false; render(); });
   on("#ppGo", () => plantOne(p, $("#ppDate").value));
-
-  /* Hold the position and it offers to give up the square; tap it and it still goes to
-     the map. The hold has already answered by the time the finger lifts, so the tap
-     that ends it must not also navigate. */
-  const loc = app.querySelector("[data-unplace]");
-  if(loc){
-    let holdT = null, answered = false;
-    const drop = () => { clearTimeout(holdT); loc.classList.remove("holding"); };
-    loc.addEventListener("pointerdown", e => {
-      if(e.button) return;                       // a right-click is not a hold
-      answered = false;
-      loc.classList.add("holding");
-      holdT = setTimeout(() => { answered = true; drop(); armUnplace = true; render(); }, 500);
-    });
-    ["pointerup","pointercancel","pointerleave"].forEach(t => loc.addEventListener(t, drop));
-    loc.addEventListener("click", e => { if(answered){ e.preventDefault(); answered = false; } });
-  }
-  on("#unpCancel", () => { armUnplace = false; render(); });
-  on("#unpGo", () => {
-    const was = `${p.x}, ${p.y}`;
-    unplacePlant(p);
-    /* That is the whole of what the sheet was open for, and a sheet left standing on
-       "not placed" is a dead end. So it closes the way it always closes — back to the
-       map you were looking at, or back to the cultivar page you came from. */
-    close();
-    saveNow(`Plant ${p.id} taken off the map — ${was} ft is free`);
-  });
 
   /* One click to the division, and the "Divided from" link is the way back. */
   app.querySelectorAll("[data-goplant]").forEach(tr => tr.onclick = () => {
@@ -3709,9 +3669,12 @@ function renderMap(app){
     <div class="plot" id="plot">
       <svg id="svg" viewBox="${view.x} ${view.y} ${view.w} ${h}" preserveAspectRatio="xMidYMid meet">
         ${baseMapFor(view.w, h)}
-        ${cellPx >= 7 ? mapped().map(p=>`<rect data-cell="${p.id}" x="${cellX(p)*CELL()}" y="${cellY(p)*CELL()}"
-           width="${CELL()}" height="${CELL()}" fill="#C25A6D" fill-opacity=".10"
-           stroke="#C25A6D" stroke-width="${px(0.8)}" opacity=".55"/>`).join("") : ""}
+        ${/* The square takes the colour of the peony standing in it, so a plan reads as a
+              plan whole — outline and wash together — rather than a charcoal dot sitting
+              inside a rose square saying two different things at once. */
+          cellPx >= 7 ? mapped().map(p=>`<rect data-cell="${p.id}" x="${cellX(p)*CELL()}" y="${cellY(p)*CELL()}"
+           width="${CELL()}" height="${CELL()}" fill="${pinFill(p)}" fill-opacity=".10"
+           stroke="${pinFill(p)}" stroke-width="${px(0.8)}" opacity=".55"/>`).join("") : ""}
         <rect id="ghostCell" x="0" y="0" width="0" height="0" fill="#C25A6D" fill-opacity=".2"
               stroke="#C25A6D" stroke-width="${px(2.2)}" opacity="0" pointer-events="none"/>
         ${/* Zoomed out to the whole property the markers run together, and which one
@@ -4152,7 +4115,7 @@ document.addEventListener("keydown", e => {
   }
   if(photoFor !== null){ photoFor = null; draftCrop = null; return render(); }
   if(draftDivide){ discardDivide(); return render(); }
-  if(armUnplace){ armUnplace = false; return render(); }
+  if(armPlantOne){ armPlantOne = false; return render(); }
   if(armDividePlant){ armDividePlant = false; return render(); }
   if(openPlant !== null){
     const p = findPlant(openPlant), cid = p && p.cultivarId;
