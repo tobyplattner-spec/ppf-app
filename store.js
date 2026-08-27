@@ -1,7 +1,6 @@
 /* Plattner Peonies & Farmstead — the one seam.
-   Both faces of the app, the desktop one and the one on the phone, sit on top of this
-   file and nothing else. It knows where the records live and how to get them back;
-   it knows nothing whatever about peonies.
+   The app sits on top of this file and nothing else. It knows where the records live
+   and how to get them back; it knows nothing whatever about peonies.
 
    The records are farm-data.json in a private repository, and the photographs are
    files in photos/ beside it, one to a cultivar. A repository rather than a folder
@@ -10,16 +9,15 @@
    for free, and an undo for a bad afternoon.
 
      github — the records in the repository. Reads and writes them in place.
-              This is the one the phone and the desktop both use.
-     folder — File System Access, as the desktop app always did. A local farm folder,
-              written in place. Kept as the way in when the network is not there.
+              This is the app: the only way the records are ever written.
      served — the file is simply sitting next to this page. Read-through.
      picked — you chose farm-data.json yourself, out of Files or Drive. Read-through.
 
-   In the read-through modes, and in github mode with no signal, every edit is written
-   into this browser's own storage the moment it is made, so a locked screen or a walk
-   out of range can never lose an afternoon's work. What is owed goes back the moment
-   there is a way to send it. */
+   The two read-through modes are the way in before the repository is connected, and
+   nothing else. In them, and in github mode with no signal, every edit is written into
+   this browser's own storage the moment it is made, so a locked screen or a walk out of
+   range can never lose an afternoon's work. What is owed goes back the moment there is
+   a way to send it. */
 
 /* Which copy of this file is actually running. Printed on the way-in screen, because
    a browser holding yesterday's copy behind a cache looks exactly like a bug in
@@ -230,18 +228,16 @@ const Git = {
 
 /* ---------- the photographs ---------- */
 const Photos = {
-  dir:null, base:null, git:false, urls:new Map(), missing:new Set(), shas:new Map(),
+  base:null, git:false, urls:new Map(), missing:new Set(), shas:new Map(),
 
-  /* Folder mode: the real photos/ directory, which can be written to. */
-  async mount(root){ Photos.base = null; Photos.git = false; Photos.dir = await root.getDirectoryHandle(photoDir(), {create:true}); },
   /* Served mode: photos/ is just a path next to the page. Read only. */
-  mountWeb(){ Photos.dir = null; Photos.git = false; Photos.base = new URL("./", location.href).href; },
+  mountWeb(){ Photos.git = false; Photos.base = new URL("./", location.href).href; },
   /* Repository mode: photos/ is a directory of files reached over the wire, and kept
      on this device afterwards so the app opens instantly and works out of range. */
-  mountGit(){ Photos.dir = null; Photos.base = null; Photos.git = true; },
-  /* Picked mode: no folder at all — every circle falls back to its drawing until a
+  mountGit(){ Photos.base = null; Photos.git = true; },
+  /* Picked mode: nowhere to put a file — every circle falls back to its drawing until a
      new photograph is taken, and that one is carried inside the records themselves. */
-  mountNone(){ Photos.dir = null; Photos.base = null; Photos.git = false; },
+  mountNone(){ Photos.base = null; Photos.git = false; },
 
   /* What the circle should show, or nothing. A record pointing at a file that is not
      there falls back to the drawing rather than a broken picture. */
@@ -258,7 +254,7 @@ const Photos = {
      the record keeps only the path to it. Read-through modes cannot write, so they
      leave the records exactly as they are. */
   async adopt(db){
-    if(!Photos.dir && !Photos.git) return 0;
+    if(!Photos.git) return 0;
     let n = 0;
     for(const v of (db.cultivars || [])){
       if(!isInline(v.photo)) continue;
@@ -273,14 +269,7 @@ const Photos = {
   async loadAll(db){
     Photos.clear();
     const want = (db.cultivars || []).filter(v => hasPhotoRef(v.photo) && !isInline(v.photo));
-    if(Photos.dir){
-      await Promise.all(want.map(async v => {
-        try{
-          const h = await Photos.dir.getFileHandle(photoFile(v));
-          Photos.hold(v, URL.createObjectURL(await h.getFile()));
-        }catch(e){ Photos.missing.add(v.id); }
-      }));
-    }else if(Photos.git){
+    if(Photos.git){
       await Promise.all(want.map(v => Photos.fromGit(v)));
     }else if(Photos.base){
       /* Served: the picture is at a plain URL, so it is loaded once to find out
@@ -327,14 +316,7 @@ const Photos = {
   /* Writes the picture, then points the record at it — as a file wherever there is
      somewhere to put one, and inside the record itself where there is not. */
   async write(v, blob){
-    if(Photos.dir){
-      const h = await Photos.dir.getFileHandle(photoFile(v), {create:true});
-      const w = await h.createWritable();
-      await w.write(blob);
-      await w.close();
-      v.photo = photoRef(v);
-      Photos.hold(v, URL.createObjectURL(blob));
-    }else if(Photos.git){
+    if(Photos.git){
       const path = photoRef(v);
       const bytes = new Uint8Array(await blob.arrayBuffer());
       const b64 = bytesToB64(bytes);
@@ -372,8 +354,7 @@ const Photos = {
 
   async remove(v){
     const path = hasPhotoRef(v.photo) && !isInline(v.photo) ? v.photo : photoRef(v);
-    if(Photos.dir){ try{ await Photos.dir.removeEntry(photoFile(v)); }catch(e){} }
-    else if(Photos.git){
+    if(Photos.git){
       await Photos.drop(v).catch(() => {});
       try{ await Git.del(path, Photos.shas.get(v.id) || null, "Remove photograph " + path); }
       catch(e){ if(e.kind === "offline") await Outbox.queuePhoto(v.id, path, null); }
@@ -430,12 +411,11 @@ const Outbox = {
 
 /* ---------- the store ---------- */
 const Store = {
-  mode:null,                    /* "github" | "folder" | "served" | "picked" */
-  dir:null, file:null, pending:null, label:null,
+  mode:null,                    /* "github" | "served" | "picked" */
+  label:null,
   sha:null,                     /* what the records looked like when we last agreed */
   unsent:false,                 /* edits are safe here but not yet where they belong */
   lastSync:null,
-  supported: typeof window !== "undefined" && typeof window.showDirectoryPicker === "function",
   servedCapable: typeof location !== "undefined" && (location.protocol === "http:" || location.protocol === "https:"),
 
   get ready(){ return Store.mode !== null; },
@@ -454,11 +434,11 @@ const Store = {
     return BOOK;
   },
   /* The other book has to actually be reachable to be worth offering. In the repository
-     it is a second file in the same repository; in a farm folder, a second file in the
-     same folder; served, a second file beside the page. A file you handed the app
-     yourself is the only file it has, so there is nothing to change to. */
+     it is a second file in the same repository; served, a second file beside the page.
+     A file you handed the app yourself is the only file it has, so there is nothing to
+     change to. */
   get canSwitchBooks(){
-    return Store.mode === "github" || Store.mode === "folder" || Store.mode === "served";
+    return Store.mode === "github" || Store.mode === "served";
   },
   /* Change books and hand back the other one's records. Whatever the book being left
      still owes stays owed on its own shelf, and goes home the next time it is open. */
@@ -466,12 +446,6 @@ const Store = {
     if(!BOOKS[b]) throw new Error("No such set of books: " + b);
     await Store.setBook(b);
     if(Store.mode === "served") return Store.openServed();
-    if(Store.mode === "folder"){
-      try{ Store.file = await Store.dir.getFileHandle(dataFile()); }
-      catch(e){ throw new Error("There is no " + dataFile() + " in \u201C" + Store.dir.name + "\u201D"); }
-      Store.label = Store.dir.name + "/" + dataFile();
-      await Photos.mount(Store.dir);
-    }
     return Store.load();
   },
 
@@ -495,8 +469,8 @@ const Store = {
     Photos.shas.clear();
     return BOOK;
   },
-  /* Both of these put the edit where it actually belongs rather than parking it. */
-  get writesInPlace(){ return Store.mode === "folder" || Store.mode === "github"; },
+  /* The repository puts the edit where it actually belongs rather than parking it. */
+  get writesInPlace(){ return Store.mode === "github"; },
   get isRepo(){ return Store.mode === "github"; },
   name(){ return Store.label; },
 
@@ -555,47 +529,12 @@ const Store = {
     Store.mode = null; Store.label = null; Store.sha = null; Store.unsent = false;
   },
 
-  /* ---- folder, exactly as the desktop app always did it ---- */
-  async restoreFolder(){
-    if(!Store.supported) return false;
-    const d = await IDB.get("dir");
-    if(!d) return false;
-    const p = await d.queryPermission({mode:"readwrite"});
-    if(p === "granted") return Store.mountFolder(d);
-    Store.pending = d;
-    return false;
-  },
-  async regrant(){
-    const d = Store.pending; if(!d) return false;
-    const p = await d.requestPermission({mode:"readwrite"});
-    if(p !== "granted") return false;
-    Store.pending = null;
-    return Store.mountFolder(d);
-  },
-  async pick(){
-    const d = await window.showDirectoryPicker({mode:"readwrite", id:"ppf-farm"});
-    const p = await d.requestPermission({mode:"readwrite"});
-    if(p !== "granted") throw new Error("Permission denied");
-    if(!await Store.mountFolder(d))
-      throw new Error("No " + dataFile() + " in “" + d.name + "” — choose the folder that holds it");
-    await IDB.set("dir", d);
-    return true;
-  },
-  async mountFolder(d){
-    let f;
-    try{ f = await d.getFileHandle(dataFile()); }catch(e){ return false; }
-    Store.dir = d; Store.file = f; Store.mode = "folder";
-    Store.label = d.name + "/" + dataFile();
-    Store.unsent = false;
-    await Photos.mount(d);
-    return true;
-  },
-  /* What was open last time, whichever way it was opened. */
+  /* What was open last time. The repository is the only way the records are ever
+     written, so it is the only thing there is to come back to. */
   async restore(){
     /* Which book before which file: everything below reads from the one that is open. */
     await Store.loadBook();
-    if(await Store.restoreRepo()) return true;
-    return Store.restoreFolder();
+    return Store.restoreRepo();
   },
 
   /* ---- served: the file is simply next door ---- */
@@ -634,76 +573,59 @@ const Store = {
     Store.sha = c.sha || null;
     if(Store.mode === "github"){ await Git.loadConfig(); Photos.mountGit(); }
     else if(Store.mode === "served" && Store.servedCapable) Photos.mountWeb();
-    else if(Store.mode === "folder") Photos.mountNone();
     else Photos.mountNone();
     return db;
   },
 
   /* ---------- reading ---------- */
+  /* The repository is the only place the records are read from and written to, so this
+     is the whole of it. Served and picked hand their records straight back from their
+     own openers and never come through here. */
   async load(){
-    if(Store.mode === "github"){
-      let text, sha;
-      if(Store._first){ text = Store._first; sha = Store.sha; Store._first = null; }
-      else{
-        try{
-          const got = await Git.getText(dataFile());
-          if(!got) throw new GitError("No " + dataFile() + " in " + Git.label, 404, "missing");
-          text = got.text; sha = got.sha;
-          Store.lastSync = Date.now();
-        }catch(e){
-          /* Out of range on the way in: what this device last held is the farm as far
-             as it knows, and the edits owed are still owed. */
-          if(e.kind !== "offline") throw e;
-          const c = await Store.cached();
-          if(!c) throw e;
-          const db = JSON.parse(c.text);
-          Store.sha = c.sha || null;
-          Store.unsent = !!c.unsent;
-          await Photos.loadAll(db);
-          return db;
-        }
+    let text, sha;
+    if(Store._first){ text = Store._first; sha = Store.sha; Store._first = null; }
+    else{
+      try{
+        const got = await Git.getText(dataFile());
+        if(!got) throw new GitError("No " + dataFile() + " in " + Git.label, 404, "missing");
+        text = got.text; sha = got.sha;
+        Store.lastSync = Date.now();
+      }catch(e){
+        /* Out of range on the way in: what this device last held is the farm as far
+           as it knows, and the edits owed are still owed. */
+        if(e.kind !== "offline") throw e;
+        const c = await Store.cached();
+        if(!c) throw e;
+        const db = JSON.parse(c.text);
+        Store.sha = c.sha || null;
+        Store.unsent = !!c.unsent;
+        await Photos.loadAll(db);
+        return db;
       }
-      /* An edit made out of range outranks the copy on the wire — it is newer, and it
-         is the only copy of that afternoon. */
-      const owed = await Outbox.read();
-      if(owed.data && owed.data.text){ text = owed.data.text; Store.unsent = true; }
-      Store.sha = sha;
-      const db = JSON.parse(text);
-      const moved = await Photos.adopt(db);
-      await Photos.loadAll(db);
-      await Store.keepLocal(text);
-      if(moved){
-        await Store.save(db);
-        Store.say(moved + " photograph" + (moved === 1 ? "" : "s") + " lifted into " + photoDir() + "/");
-      }
-      Store.flush().catch(() => {});   /* what is owed goes now, quietly */
-      return db;
     }
-    /* folder */
-    const f = await Store.file.getFile();
-    const db = JSON.parse(await f.text());
+    /* An edit made out of range outranks the copy on the wire — it is newer, and it
+       is the only copy of that afternoon. */
+    const owed = await Outbox.read();
+    if(owed.data && owed.data.text){ text = owed.data.text; Store.unsent = true; }
+    Store.sha = sha;
+    const db = JSON.parse(text);
     const moved = await Photos.adopt(db);
     await Photos.loadAll(db);
+    await Store.keepLocal(text);
     if(moved){
       await Store.save(db);
-      Store.say(moved + " photograph" + (moved === 1 ? "" : "s") + " moved into " + photoDir() + "/");
+      Store.say(moved + " photograph" + (moved === 1 ? "" : "s") + " lifted into " + photoDir() + "/");
     }
+    Store.flush().catch(() => {});   /* what is owed goes now, quietly */
     return db;
   },
 
   /* ---------- writing ---------- */
-  /* A save means "put this where it cannot be lost". With a folder or a repository
-     that is the file itself; without one it is this browser's own storage, and the
-     trip home is the share sheet, which only a tap of yours can open. */
+  /* A save means "put this where it cannot be lost". With the repository that is the
+     file itself; without it this browser's own storage, and the trip home is the share
+     sheet, which only a tap of yours can open. */
   async save(data){
     const text = JSON.stringify(data, null, 2);
-
-    if(Store.mode === "folder"){
-      const w = await Store.file.createWritable();
-      await w.write(text);
-      await w.close();
-      return;
-    }
 
     if(Store.mode === "github"){
       await Store.keepLocal(text);            /* safe on this device before anything else */
@@ -843,13 +765,6 @@ const Store = {
 /* Everything the app needs in order to say, in one line, where its data stands. */
 Store.build = BUILD;
 
-Store.state = () => {
-  if(!Store.mode) return "none";
-  if(Store.unsent) return isOffline() ? "waiting" : "owed";
-  if(Store.mode === "github") return "repo";
-  if(Store.mode === "folder") return "folder";
-  return "local";
-};
 
 if(typeof window !== "undefined"){
   window.IDB = IDB; window.Git = Git; window.Photos = Photos; window.Store = Store; window.Outbox = Outbox;

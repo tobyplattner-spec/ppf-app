@@ -789,21 +789,17 @@ let dataOpen = false;
 function dataSheet(){
   const mode = Store.mode;
   if(mode === "github") return repoSheet();
-  const where = mode === "folder"
-    ? `<p class="small muted" style="margin:0">Written straight into
-       <strong>${esc(Store.label || DATA_FILE)}</strong> as you go, photographs and all.
-       There is nothing to send anywhere.</p>`
-    : mode === "served"
-      ? `<p class="small muted" style="margin:0">Read from <strong>${esc(Store.label || DATA_FILE)}</strong>
-         beside this page. A phone cannot write back over it, so your edits are kept here
-         and go home through <strong>Send Back</strong>.</p>`
-      : `<p class="small muted" style="margin:0">Opened from <strong>${esc(Store.label || DATA_FILE)}</strong>.
-         A phone cannot write back over the file it was handed, so your edits are kept
-         here in this browser and go home through <strong>Send Back</strong>.</p>`;
+  const where = mode === "served"
+    ? `<p class="small muted" style="margin:0">Read from <strong>${esc(Store.label || dataFile())}</strong>
+       beside this page. Nothing here writes back over it, so your edits are kept on this
+       phone and go home through <strong>Send Back</strong>. Connect the repository and
+       they go home by themselves.</p>`
+    : `<p class="small muted" style="margin:0">Opened from <strong>${esc(Store.label || dataFile())}</strong>.
+       Nothing here writes back over the file it was handed, so your edits are kept on this
+       phone and go home through <strong>Send Back</strong>. Connect the repository and
+       they go home by themselves.</p>`;
 
-  const state = mode === "folder"
-    ? `<div class="kvrow"><dt>Saved</dt><dd>${dirty ? "writing…" : "up to date"}</dd></div>`
-    : `<div class="kvrow"><dt>On this phone</dt><dd>${dirty ? "writing…" : "up to date"}</dd></div>
+  const state = `<div class="kvrow"><dt>On this phone</dt><dd>${dirty ? "writing…" : "up to date"}</dd></div>
        <div class="kvrow"><dt>Sent back</dt><dd>${Store.unsent
           ? `<span class="warn">not since your last edit</span>` : "up to date"}</dd></div>`;
 
@@ -817,16 +813,15 @@ function dataSheet(){
     ${bookPicker()}
     ${where}
     <div class="kvlist section">${state}${counts}</div>
-    ${mode === "folder" ? "" : `
-      <button class="btn primary wide section" id="dsSend">Send Back to the Farm Folder</button>
-      <p class="small muted" style="margin:10px 0 0">iOS opens the share sheet: pick Drive or Files,
-        then save over the <strong>${esc(DATA_FILE)}</strong> already in your farm folder.
-        Photographs you take on the phone travel inside the file and the desktop app files
-        them into <strong>photos/</strong> the next time it opens the folder.</p>`}
+    <button class="btn primary wide section" id="dsSend">Send Back</button>
+    <p class="small muted" style="margin:10px 0 0">iOS opens the share sheet: pick Drive or
+      Files and save over the <strong>${esc(dataFile())}</strong> you keep there. Photographs
+      taken here travel inside the file until the repository is connected, which is the
+      only thing that files them into <strong>${esc(photoDir())}/</strong> on their own.</p>
     <div class="hairline"></div>
     <button class="btn wide" id="dsOther">Open a Different File</button>
     <p class="small muted" style="margin:10px 0 0">This closes what is open here.${
-      mode === "folder" ? "" : Store.unsent
+      Store.unsent
         ? ` <span class="warn">There are edits that have not been sent back yet.</span>`
         : " Everything has been sent back."}</p>`;
 
@@ -835,8 +830,7 @@ function dataSheet(){
      were both just in the way. */
   return sheet("ds", {
     title: "Your data",
-    sub: mode === "folder" ? "Folder — read and written in place"
-       : mode === "served" ? "Served — read from beside this page"
+    sub: mode === "served" ? "Served — read from beside this page"
        : "Opened by hand — read through",
     body,
   });
@@ -947,12 +941,12 @@ function wireDataSheet(){
   $("#dsOther").onclick = async () => {
     if(Store.unsent && !confirm(Store.isRepo
       ? "There is work on this phone that has not been sent yet. Disconnect anyway?"
-      : "Some edits have not been sent back to your farm folder yet. Open a different file anyway?")) return;
+      : "Some edits have not been sent back yet. Open a different file anyway?")) return;
     if(Store.isRepo) await Store.disconnectRepo();
     await Store.forget();
     Photos.clear();
     DB = null; dirty = false; dataOpen = false;
-    Store.mode = null; Store.dir = null; Store.file = null; Store.label = null;
+    Store.mode = null; Store.label = null;
     location.hash = "#/dashboard";
     render();
   };
@@ -1249,7 +1243,6 @@ function repoFormHtml(){
 }
 
 function renderConnect(app){
-  const needsRegrant = !!Store.pending;
   const resume = cachedSave && cachedSave.text;
 
   if(connectStep === "repo"){
@@ -1288,27 +1281,22 @@ function renderConnect(app){
 
   const choices = [];
   choices.push(`<button class="btn primary wide" id="cRepo">Connect Your Records</button>
-    <p class="small muted" style="margin:0 0 16px">The records the desktop writes, read and written
-      here in place. Photographs and all, with no sending back afterwards.</p>`);
-  if(needsRegrant) choices.push(`<button class="btn wide" id="cReconnect">Reconnect Your Farm Folder</button>
-    <p class="small muted" style="margin:0 0 16px">Browsers ask permission again each session. One tap and you are back in.</p>`);
+    <p class="small muted" style="margin:0 0 16px">Your records in their own repository, read and
+      written here in place. Photographs and all, with no sending back afterwards. This is
+      the one to use.</p>`);
 
   if(resume) choices.push(`<button class="btn wide" id="cResume">Carry On Where You Left Off</button>
-    <p class="small muted" style="margin:0 0 16px"><strong>${esc(cachedSave.label || DATA_FILE)}</strong>,
+    <p class="small muted" style="margin:0 0 16px"><strong>${esc(cachedSave.label || dataFile())}</strong>,
       last edited ${fmtWhen(cachedSave.at)}${cachedSave.unsent
         ? ` · <span class="warn">not yet sent back</span>` : ""}.</p>`);
 
   choices.push(`<button class="btn wide" id="cFile">Open farm&#8209;data.json</button>
-    <p class="small muted" style="margin:0 0 16px">Pick it out of Files or Drive. Edits are kept on this phone
-      and go back to your farm folder through the share sheet.</p>`);
+    <p class="small muted" style="margin:0 0 16px">Pick it out of Files or Drive. Edits are kept on this
+      phone and go home through the share sheet — a way in before the repository is connected.</p>`);
 
   if(Store.servedCapable) choices.push(`<button class="btn wide" id="cServed">Read the File Beside This Page</button>
-    <p class="small muted" style="margin:0 0 16px">This page is being served, so <strong>${esc(DATA_FILE)}</strong>
-      and <strong>${PHOTO_DIR}/</strong> next to it can be read directly — photographs and all.</p>`);
-
-  if(Store.supported) choices.push(`<button class="btn wide" id="cFolder">Choose the Farm Folder</button>
-    <p class="small muted" style="margin:0 0 16px">This browser can write the folder in place, the same as the
-      desktop app does. Nothing to send back afterwards.</p>`);
+    <p class="small muted" style="margin:0 0 16px">This page is being served, so <strong>${esc(dataFile())}</strong>
+      and <strong>${esc(photoDir())}/</strong> next to it can be read directly — photographs and all.</p>`);
 
   app.innerHTML = `
   <div class="connect">
@@ -1339,23 +1327,11 @@ function renderConnect(app){
 
   $("#cRepo").onclick = () => { connectStep = "repo"; render(); };
 
-  const re = $("#cReconnect");
-  if(re) re.onclick = () => open(async () => {
-    if(!await Store.regrant()){ toast("Permission not granted"); return null; }
-    return Store.load();
-  }, "the folder");
-
   const res = $("#cResume");
   if(res) res.onclick = () => open(() => Store.openCached(cachedSave), "what was open");
 
   const served = $("#cServed");
-  if(served) served.onclick = () => open(() => Store.openServed(), DATA_FILE);
-
-  const folder = $("#cFolder");
-  if(folder) folder.onclick = () => open(async () => {
-    if(!await Store.pick()) return null;
-    return Store.load();
-  }, "the folder");
+  if(served) served.onclick = () => open(() => Store.openServed(), dataFile());
 
   const pick = $("#pickJson");
   $("#cFile").onclick = () => pick.click();
@@ -4209,10 +4185,13 @@ document.addEventListener("keydown", e => {
   }
 });
 
-/* Only the folder edition can lose anything to a closed tab — everywhere else the
-   edits are already in this browser's storage. */
+/* Nothing left can lose an afternoon to a closed tab. The repository writes this
+   browser's own copy before it ever reaches for the wire, and the read-through ways in
+   write nothing else at all — so every edit is already on this phone by the time the
+   tab goes, and a prompt asking whether you really meant it would only ever be wrong.
+   Kept as a guard for the one case that is genuinely unsaved: nothing open yet. */
 window.addEventListener("beforeunload", e => {
-  if(dirty && Store.writesInPlace){ e.preventDefault(); e.returnValue = ""; }
+  if(dirty && !Store.ready){ e.preventDefault(); e.returnValue = ""; }
 });
 
 /* ---------- keeping up with the other device ---------- */
