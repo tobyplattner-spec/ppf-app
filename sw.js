@@ -3,16 +3,20 @@
    over the wire and kept by the app itself, which knows what is owed and what is not.
    Requests to GitHub are left strictly alone.
 
-   Everything lives in one folder, so one worker covers both faces. */
-/* Bumped deliberately for the rollout of Aug 26: two Pages deployments sat unbuilt for
-   a day, so every device has been holding a shell older than the records it is reading.
+   One face now, at the root. m.html is a redirect kept for home-screen icons added when
+   the app lived there; it is in the shell so those still open with no signal. */
+/* Bumped deliberately for the retirement of the desktop face: the phone app is the root
+   page now, and a shell still holding the old desktop index.html would go on serving it.
    A new name empties the old one on activate rather than trusting network-first to
-   catch every file on the way past. */
-const CACHE = "ppf-v7";
+   catch every file on the way past.
+
+   Everything named here has to exist: addAll is all-or-nothing, and one missing file
+   fails the install and leaves the device with no shell at all rather than an old one. */
+const CACHE = "ppf-v8";
 const SHELL = [
   "./", "./index.html", "./m.html", "./store.js?v=5",
-  "./manifest.webmanifest", "./manifest-phone.webmanifest",
-  "./icon-180.png", "./icon-192.png", "./icon-512.png"
+  "./manifest.webmanifest",
+  "./icon-180.png", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png"
 ];
 
 self.addEventListener("install", e => {
