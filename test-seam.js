@@ -178,6 +178,37 @@ ok(!/squeezeReceipt|RECEIPT_/.test(tp), "the receipt squeeze never touches a pho
 ok(/RECEIPT_PX = \[1600/.test(app), "a receipt keeps a long edge small print can survive");
 ok(/RECEIPT_BUDGET/.test(sq), "and gives away quality against a budget instead");
 ok(/return best/.test(sq), "one too busy to fit is still kept, at its smallest");
+/* The recording sheet is one panel with three tabs, so it must not change size when
+   they are touched — it asks for a height rather than settling for a maximum. */
+ok(/tall: true/.test(app), "the recording sheet asks to be full height");
+ok(/\.pspanel\.tall\{height:92dvh\}/.test(app), "and tall is a height, not a maximum");
+const orderForm = app.slice(app.indexOf("const orderForm ="), app.indexOf("const simpleForm ="));
+ok(orderForm.includes("draftReceiptRow()"), "a plant order asks for the receipt inside its own form");
+ok(orderForm.indexOf("draftReceiptRow()") < orderForm.indexOf("The roots"),
+   "and asks for it above the roots, the way the saved transaction shows it");
+ok(!/filed against this entry/.test(app), "the note under the receipt button is gone");
+ok(!/Tap to read|Tap to replace/.test(app), "neither thumbnail says read or replace");
+ok((app.match(/Tap to view/g) || []).length === 2, "both of them say view instead");
+
+/* Escape shuts the sheet in front, so the order it tests things in has to be the order
+   they are stacked in. On the ledger that is receipt, then plant, then transaction. */
+const esc = app.slice(app.indexOf('if(e.key !== "Escape") return;'),
+                      app.indexOf('window.addEventListener("beforeunload"'));
+const at = t => { const i = esc.indexOf(t); return i < 0 ? Infinity : i; };
+ok(at("if(receiptFor !== null)") < at("if(draftTxn)"),
+   "Escape leaves a receipt before it throws away the draft behind it");
+ok(at("if(openPlant !== null)") < at("if(openTxn !== null)"),
+   "and leaves a plant before it closes the order behind it");
+
+/* There are two of these — the divisions inside a plant sheet, and the roots on an
+   order — and only the second one changed, so this looks inside wireTxnView rather
+   than at the first match in the file. */
+const wtv = app.slice(app.indexOf("function wireTxnView("), app.indexOf("/* ---------- record an order"));
+const gp = wtv.slice(wtv.indexOf('querySelectorAll("[data-goplant]")'));
+ok(gp.length > 0, "wireTxnView is where the roots on an order are wired");
+ok(!/location\.hash/.test(gp.slice(0, 300)), "a plant on an order does not navigate away from the ledger");
+ok(/openPlant = Number/.test(gp.slice(0, 300)), "it opens the plant sheet over the order instead");
+ok(/const plantSheetFloats/.test(app), "and one answer decides where closing it leaves you");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

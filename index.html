@@ -417,6 +417,13 @@ td.r,th.r{text-align:right}
   animation:rise .22s cubic-bezier(.22,.68,.36,1);
 }
 @supports (height:100dvh){ .pspanel{max-height:92dvh} }
+/* A panel that is always its full height rather than the height of what is in it.
+   Most sheets should hug their contents; the one that records a transaction should
+   not, because the three kinds are three different lengths and the panel jumped a
+   third of the screen every time the tabs were touched — with Save moving out from
+   under the thumb that was reaching for it. */
+.pspanel.tall{height:92vh}
+@supports (height:100dvh){ .pspanel.tall{height:92dvh} }
 .pshandle{flex:none;padding:8px 0 2px;display:flex;justify-content:center}
 .pshandle i{width:38px;height:4px;border-radius:3px;background:var(--graphite-30);display:block}
 .pshead{flex:none;display:flex;align-items:flex-start;gap:10px;padding:6px 18px 0}
@@ -567,6 +574,7 @@ body.dragging,body.dragging *{user-select:none !important;-webkit-user-select:no
 /* Landscape on a phone is short: the sheets need every pixel of height they can get. */
 @media (max-height:520px){
   .pspanel{max-height:96vh}
+  .pspanel.tall{height:96vh}
   .psbody{padding-top:10px}
   .compass{display:none}
 }
@@ -776,7 +784,7 @@ const ICON = {
    indicator. The ids are the ones the shared wiring already reaches for. */
 function sheet(id, o){
   const closeId = o.closeId || (id + "Close");
-  return `<div class="psback" id="${id}Back"><div class="pspanel${o.foot ? "" : " nofoot"}">
+  return `<div class="psback" id="${id}Back"><div class="pspanel${o.tall ? " tall" : ""}${o.foot ? "" : " nofoot"}">
     <div class="pshandle"><i></i></div>
     <div class="pshead">
       <div class="grow"><h2>${o.title}</h2>${o.sub ? `<div class="subline">${o.sub}</div>` : ""}</div>
@@ -1193,7 +1201,7 @@ function render(){
      so without that second clause every render tore down the edit it had just begun. */
   const panelOpen = hash.startsWith("#/collection/") || hash.startsWith("#/plant/")
     || (hash.startsWith("#/map") && openPlant !== null)
-    || (hash.startsWith("#/ledger") && openTxn !== null);
+    || (hash.startsWith("#/ledger") && (openTxn !== null || openPlant !== null));
   if(editing && !panelOpen) editing = null;
 
   route(app, hash);
@@ -2310,6 +2318,13 @@ function plantOne(p, date){
    from, when did it go in, where is it now, what did it cost. Everything about the
    flower itself — and, when it comes, what was cut from it — belongs to the cultivar. */
 let openPlant = null;
+/* A plant sheet opened over the map, or over a transaction on the ledger, is floating
+   above a screen that is still there: the hash never moved, so closing it is a render
+   and nothing more, and you come back exactly where you were. Opened from a cultivar's
+   page — or straight from #/plant/<id>, which is a link into one — the way back is that
+   page, and the hash has to be told. */
+const plantSheetFloats = () =>
+  location.hash.startsWith("#/map") || location.hash.startsWith("#/ledger");
 /* Add plant opens a draft. It is a plain object held here, not in DB.plants, so
    closing the sheet without saving leaves the data exactly as it was. */
 let draftPlant = null;
@@ -2490,14 +2505,13 @@ function dividePanel(p){
 }
 function wirePlantSheet(app, p){
   if(dividing(p)) return wireDivide(app, p);
-  /* Opened from the map it closes back to the map; opened from a cultivar page it
-     closes back to that. Where it came from is simply where the hash still points. */
+  /* Where it came from is simply where the hash still points. */
   const close = () => {
-    const onMap = location.hash.startsWith("#/map");
+    const floats = plantSheetFloats();
     const cid = p.cultivarId;
     clearNew(); armDividePlant = false; armPlantOne = false;
     if(isDraft(p)) discardDraft(); else { editing = null; openPlant = null; }
-    if(onMap) return render();
+    if(floats) return render();
     location.hash = "#/collection/" + cid;
     render();                                  // the hash may already be that, so force it
   };
@@ -2536,9 +2550,9 @@ function wirePlantSheet(app, p){
     const n = DB.transactions.reduce((s,t) => s + (t.allocations||[]).filter(a =>
       a.target === "plant" && a.targetId === p.id).length, 0);
     if(!confirm(`Delete plant ${p.id}?` + (n ? `\n\n${n} ledger allocation${n===1?"":"s"} will be released back to overhead — the ledger total is unchanged.` : ""))) return;
-    const onMap = location.hash.startsWith("#/map"), cid = p.cultivarId;
+    const floats = plantSheetFloats(), cid = p.cultivarId;
     deletePlant(p.id); editing = null; openPlant = null;
-    if(onMap) return render();
+    if(floats) return render();
     location.hash = "#/collection/" + cid;
   });
 }
@@ -2606,9 +2620,9 @@ function commitDivide(p){
      one of the pieces to go back into. */
   p.status = "Divided";
   markDirty();
-  const onMap = location.hash.startsWith("#/map");
+  const floats = plantSheetFloats();
   discardDivide(); editing = null; openPlant = null;
-  if(onMap) render();
+  if(floats) render();
   else { location.hash = "#/collection/" + p.cultivarId; render(); }
   saveNow(`Plant ${p.id} divided into ${made.length}`);
   return made;
@@ -3044,13 +3058,17 @@ function renderLedger(app){
      untouched — so handlers attached earlier survive and the order stopped mattering. */
   const open = openTxn === null ? null : DB.transactions.find(x => x.id === openTxn);
   if(openTxn !== null && !open) openTxn = null;
-  /* One sheet at a time. Reading a receipt takes the transaction's place rather than
-     dimming it a second time — two backdrops over one another read as a mistake — and
-     closing the receipt hands the transaction straight back. */
-  const reading = open && receiptFor === open.id && Receipts.url(open) ? open : null;
+  /* One sheet at a time. Reading a receipt takes the place of the sheet it was opened
+     from rather than dimming it a second time — two backdrops over one another read as
+     a mistake — and closing it hands that sheet straight back, with everything still
+     in it. */
+  const reading = receiptShowing(open);
   if(receiptFor !== null && !reading) closeReceipt();
-  if(draftTxn) app.insertAdjacentHTML("beforeend", txnSheet());
-  else if(reading) app.insertAdjacentHTML("beforeend", receiptPanel(reading));
+  const plantFor = openPlant !== null ? findPlant(openPlant) : null;
+  if(openPlant !== null && !plantFor) openPlant = null;   /* deleted out from under us */
+  if(reading) app.insertAdjacentHTML("beforeend", receiptPanel(reading));
+  else if(plantFor) app.insertAdjacentHTML("beforeend", plantSheet(plantFor));
+  else if(draftTxn) app.insertAdjacentHTML("beforeend", txnSheet());
   else if(open) app.insertAdjacentHTML("beforeend", txnView(open));
 
   app.querySelectorAll("[data-lr]").forEach(el => el.onclick = () => {
@@ -3065,8 +3083,9 @@ function renderLedger(app){
   const ltEl = $("#lto");   if(ltEl) ltEl.onchange = e => { ledTo   = e.target.value; paintLedger(); };
   $("#addTxn").onclick = () => { draftTxn = blankTxn("order"); render(); };
   wireLedRows(app);
-  if(draftTxn) wireTxnSheet(app);
-  else if(reading) wireReceiptPanel(reading);
+  if(reading) wireReceiptPanel(reading);
+  else if(plantFor) wirePlantSheet(app, plantFor);
+  else if(draftTxn) wireTxnSheet(app);
   else if(open) wireTxnView(app, open);
 }
 
@@ -3139,9 +3158,9 @@ function txnView(x){
     <div class="between" style="margin-top:24px"><h3 style="margin:0">Receipt</h3>
       <span class="small muted">${rc ? "kept with this entry" : "none yet"}</span></div>
     ${rc
-      ? `<button class="receiptthumb" id="tvReceipt" style="margin-top:10px" aria-label="Read this receipt">
+      ? `<button class="receiptthumb" id="tvReceipt" style="margin-top:10px" aria-label="View this receipt">
            <img src="${esc(rc)}" alt="Receipt from ${esc(x.counterparty || "")}">
-           <span class="more">Tap to read</span>
+           <span class="more">Tap to view</span>
          </button>`
       : `<button class="btn wide" id="tvAddReceipt" style="margin-top:10px">Add a Receipt</button>
          <p class="small muted" style="margin:8px 0 0">Photograph it and it is squeezed on the way in —
@@ -3174,17 +3193,32 @@ function txnView(x){
 }
 
 /* ---------- reading the receipt ---------- */
+/* A receipt is worth looking at while it is still being typed against, not only once it
+   is filed — so the same viewer serves both. What it needs is a picture, a name for it,
+   and somewhere to put a replacement; whether that is a transaction with a number or a
+   draft that has not got one yet is the only difference, and it is one line each.
+
+   Nothing is showing unless there is something to show, so a draft whose receipt has
+   just been removed falls back to the sheet it came from rather than to an empty box. */
+function receiptShowing(open){
+  if(draftTxn) return receiptFor === "draft" && draftTxn.receiptUrl
+    ? { src: draftTxn.receiptUrl, who: draftTxn.counterparty, when: draftTxn.date, draft: true }
+    : null;
+  return open && receiptFor === open.id && Receipts.url(open)
+    ? { src: Receipts.url(open), who: open.counterparty, when: open.date, tx: open }
+    : null;
+}
 /* Fitted to the sheet to begin with, because the first question is always which receipt
    this is. A tap gives it its full size and lets the box do the scrolling: the viewport
    is locked against pinching, so the picture has to carry its own way in. */
-function receiptPanel(x){
-  const src = Receipts.url(x);
+function receiptPanel(r){
+  const src = r.src;
   return sheet("rc", {
     title: "Receipt",
-    sub: `${esc(x.counterparty || "")}${x.date ? " · " + fmtDate(x.date) : ""}`,
+    sub: `${esc(r.who || "")}${r.when ? " · " + fmtDate(r.when) : ""}`,
     body: `<div class="receiptview${receiptZoom ? " zoomed" : ""}" id="rcView"
              style="max-height:${Math.max(240, Math.round(window.innerHeight * 0.52))}px">
-        <img id="rcImg" src="${esc(src || "")}" alt="Receipt from ${esc(x.counterparty || "")}" draggable="false">
+        <img id="rcImg" src="${esc(src || "")}" alt="Receipt from ${esc(r.who || "")}" draggable="false">
       </div>
       <p class="small muted" style="margin:12px 0 0;text-align:center">Tap it for full size, then drag
         to read the small print. Tap again to fit it back.</p>
@@ -3196,20 +3230,27 @@ function receiptPanel(x){
       </div>`
   });
 }
-function wireReceiptPanel(x){
+function wireReceiptPanel(r){
   const view = $("#rcView"), img = $("#rcImg"), pick = $("#rcFile");
-  /* Back to the transaction it belongs to, which is what is underneath. */
+  /* Back to whatever it was opened from — the saved transaction, or the half-typed
+     one, which is still standing behind with everything in it. */
   const shut = () => { closeReceipt(); render(); };
   if(pick) pick.onchange = e => {
     const f = e.target.files && e.target.files[0];
-    if(f) takeReceipt(x, f);
+    if(!f) return;
+    if(r.draft) draftTakeReceipt(f); else takeReceipt(r.tx, f);
   };
   $("#rcClose").onclick = shut;
   $("#rcBack").onclick = e => { if(e.target.id === "rcBack") shut(); };
   $("#rcDone").onclick = shut;
   $("#rcReplace").onclick = () => pick && pick.click();
   $("#rcRemove").onclick = async () => {
-    await Receipts.remove(x);        /* takes the file with it, not just the reference */
+    if(r.draft){
+      draftDropReceipt();            /* never written, so there is no file to take */
+      closeReceipt(); render();
+      return toast("Receipt removed");
+    }
+    await Receipts.remove(r.tx);     /* takes the file with it, not just the reference */
     closeReceipt();
     markDirty(); saveNow(); render();
     toast("Receipt removed");
@@ -3244,6 +3285,7 @@ function txnSheet(){
       ${field("Tax", `<input id="t-tax" inputmode="decimal" value="${esc(t.tax)}" placeholder="0.00">`)}
       <div></div>
     </div>
+    ${draftReceiptRow()}
     <h3 style="margin:18px 0 8px">The roots</h3>
     ${t.lines.map((l,i) => `<div class="lineitem">
       ${picker("line" + i, `data-line="${i}"`, l.name, known, "+ New cultivar…")}
@@ -3276,16 +3318,19 @@ function txnSheet(){
     </div>
     <div class="fieldrow">
       ${field("Description", `<input id="t-desc" value="${esc(t.description)}" placeholder="what it was for">`)}
-    </div>`;
+    </div>
+    ${draftReceiptRow()}`;
 
   return sheet("tx", {
     title: "Record a transaction",
     sub: "Nothing is added until you save",
     stacked: t.kind === "order",
+    /* Held at full height whichever kind is showing, so the three tabs are three
+       views of one panel rather than three panels of different sizes. */
+    tall: true,
     body: `<div class="seg" role="tablist">${TXN_KINDS.map(k =>
         `<button data-kind="${k.id}" class="${k.id === t.kind ? "on" : ""}">${titleCase(k.label)}</button>`).join("")}</div>
-      <div style="margin-top:18px">${t.kind === "order" ? orderForm : simpleForm}</div>
-      ${draftReceiptRow()}`,
+      <div style="margin-top:18px">${t.kind === "order" ? orderForm : simpleForm}</div>`,
     foot: `<span class="small muted" id="txSum"></span>
       <div class="acts">
         <button class="btn" id="txDiscard">Discard</button>
@@ -3307,9 +3352,13 @@ function wireTxnView(app, x){
   const add = $("#tvAddReceipt"); if(add) add.onclick = () => pick && pick.click();
   const thumb = $("#tvReceipt");
   if(thumb) thumb.onclick = () => { receiptFor = x.id; receiptZoom = false; render(); };
+  /* Over the order rather than away from it. The transaction stays open underneath and
+     the hash never moves, so closing the plant comes straight back to the order it was
+     bought on — which is the thing you were reading. */
   app.querySelectorAll("[data-goplant]").forEach(tr => tr.onclick = () => {
-    openTxn = null; armDelete = false;
-    location.hash = "#/plant/" + tr.dataset.goplant;
+    armDelete = false; editing = null;
+    openPlant = Number(tr.dataset.goplant);
+    render();
   });
 
   if(!armDelete){
@@ -3372,6 +3421,22 @@ function discardTxnDraft(){
   if(draftTxn && draftTxn.receiptUrl) URL.revokeObjectURL(draftTxn.receiptUrl);
   draftTxn = null; clearNew();
 }
+/* Into the draft rather than into a file: there is nothing to name it after yet. What
+   is held is already squeezed, so what you are looking at is what will be written. */
+async function draftTakeReceipt(file){
+  let img;
+  try{ img = await loadPicture(file); }catch(e){ return toast(e.message); }
+  const blob = await squeezeReceipt(img);
+  if(!blob) return toast("Could not read that image");
+  draftDropReceipt();
+  draftTxn.receipt = blob; draftTxn.receiptUrl = URL.createObjectURL(blob);
+  render();
+  toast(`Receipt ready \u00b7 ${Math.round(blob.size / 1024)} KB`);
+}
+function draftDropReceipt(){
+  if(draftTxn && draftTxn.receiptUrl) URL.revokeObjectURL(draftTxn.receiptUrl);
+  if(draftTxn){ draftTxn.receipt = null; draftTxn.receiptUrl = null; }
+}
 /* Filed once the entry has a number. Recording it is the thing that mattered, so a
    receipt that will not write says so and leaves the transaction standing. */
 async function fileReceipt(tx, blob){
@@ -3386,14 +3451,13 @@ function draftReceiptRow(){
     <div class="between" style="margin:22px 0 0"><h3 style="margin:0">Receipt</h3>
       <span class="small muted">optional</span></div>
     ${t.receiptUrl
-      ? `<button class="receiptthumb" id="t-rcThumb" style="margin-top:10px" aria-label="Replace this receipt">
+      ? `<button class="receiptthumb" id="t-rcThumb" style="margin-top:10px" aria-label="View this receipt">
            <img src="${esc(t.receiptUrl)}" alt="">
-           <span class="more">Tap to replace</span>
+           <span class="more">Tap to view</span>
          </button>
          <button class="btn wide" id="t-rcDrop" style="margin-top:8px">Remove the Receipt</button>`
       : `<button class="btn wide" id="t-rcAdd" style="margin-top:10px">Photograph the Receipt</button>`}
-    <input type="file" accept="image/*" id="t-rcFile" hidden>
-    <p class="small muted" style="margin:8px 0 0">It is filed against this entry once you save.</p>`;
+    <input type="file" accept="image/*" id="t-rcFile" hidden>`;
 }
 
 const hasContent = l => !!(String(l.name).trim() || String(l.price).trim());
@@ -3462,23 +3526,11 @@ function wireTxnSheet(app){
   const rcFile = $("#t-rcFile");
   const rcAdd = $("#t-rcAdd"), rcThumb = $("#t-rcThumb"), rcDrop = $("#t-rcDrop");
   if(rcAdd) rcAdd.onclick = () => rcFile.click();
-  if(rcThumb) rcThumb.onclick = () => rcFile.click();
-  if(rcDrop) rcDrop.onclick = () => {
-    URL.revokeObjectURL(t.receiptUrl);
-    t.receipt = null; t.receiptUrl = null;
-    render();
-  };
-  if(rcFile) rcFile.onchange = async e => {
+  if(rcThumb) rcThumb.onclick = () => { receiptFor = "draft"; receiptZoom = false; render(); };
+  if(rcDrop) rcDrop.onclick = () => { draftDropReceipt(); render(); };
+  if(rcFile) rcFile.onchange = e => {
     const f = e.target.files && e.target.files[0];
-    if(!f) return;
-    let img;
-    try{ img = await loadPicture(f); }catch(err){ return toast(err.message); }
-    const blob = await squeezeReceipt(img);
-    if(!blob) return toast("Could not read that image");
-    if(t.receiptUrl) URL.revokeObjectURL(t.receiptUrl);
-    t.receipt = blob; t.receiptUrl = URL.createObjectURL(blob);
-    render();
-    toast(`Receipt ready · ${Math.round(blob.size / 1024)} KB`);
+    if(f) draftTakeReceipt(f);
   };
 
   if(t.kind === "order"){
@@ -4424,26 +4476,34 @@ window.addEventListener("pagehide", () => { if(dirty && Store.ready) saveNow(nul
 document.addEventListener("keydown", e => {
   if((e.metaKey||e.ctrlKey) && e.key === "s"){ e.preventDefault(); if(dirty) saveNow(); return; }
   if(e.key !== "Escape") return;
+  /* Escape shuts the sheet in front, so this list has to be in the order the sheets
+     are actually stacked in — and on the ledger a receipt sits in front of a plant, a
+     plant in front of a transaction, and the transaction behind all of it. Read from
+     the top down: the first thing that is open is the one on top. Getting this wrong
+     is not a small thing — with the transaction tested first, Escape out of a plant
+     opened on an order shut the order too, and out of a draft's receipt threw away
+     the half-typed transaction behind it. */
   if(dataOpen){ dataOpen = false; return render(); }
   if(draftCultivar){ discardCultivarDraft(); return render(); }
   if(draftBloom){ discardBloomDraft(); return render(); }
-  if(draftTxn){ discardTxnDraft(); return render(); }
   if(receiptFor !== null){ closeReceipt(); return render(); }
-  if(openTxn !== null){
-    if(armDelete || armPlant){ armDelete = armPlant = false; return render(); }
-    return closeTxnView();
-  }
   if(photoFor !== null){ photoFor = null; draftCrop = null; return render(); }
+  /* The three below are questions asked inside a plant sheet, so they answer first. */
   if(draftDivide){ discardDivide(); return render(); }
   if(armPlantOne){ armPlantOne = false; return render(); }
   if(armDividePlant){ armDividePlant = false; return render(); }
   if(openPlant !== null){
     const p = findPlant(openPlant), cid = p && p.cultivarId;
-    const onMap = location.hash.startsWith("#/map");
+    const floats = plantSheetFloats();
     if(p && isDraft(p)) discardDraft(); else { editing = null; openPlant = null; }
-    if(onMap) return render();
+    if(floats) return render();
     location.hash = cid ? "#/collection/" + encodeURIComponent(cid) : "#/collection";
-    render();
+    return render();
+  }
+  if(draftTxn){ discardTxnDraft(); return render(); }
+  if(openTxn !== null){
+    if(armDelete || armPlant){ armDelete = armPlant = false; return render(); }
+    return closeTxnView();
   }
 });
 
