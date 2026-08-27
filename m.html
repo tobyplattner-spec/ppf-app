@@ -3378,7 +3378,7 @@ function mapped(){ return DB.plants.filter(p => live(p) && p.x !== null && p.y !
    several times the distance, and not even the same hue. The settled rose sits between
    the planted one and the --rose-dark the Established pill already wears, which is that
    colour weighted for a filled dot rather than for text. */
-const INK_PLAN = "#3A3A3C", ROSE_PLANTED = "#C25A6D", ROSE_SETTLED = "#9E4657";
+const INK_PLAN = "#3A3A3C", ROSE_PLANTED = "#C25A6D", ROSE_SETTLED = "#8A3D4C";
 const pinFill = p => p.status === PLANNED ? INK_PLAN
                    : p.status === ESTABLISHED ? ROSE_SETTLED : ROSE_PLANTED;
 /* The colour a peony is about to become, for the thing being carried towards a square.
@@ -3711,12 +3711,12 @@ function renderMap(app){
               whole row leans the same way. */
           mapped().slice().sort((a,b) => a.x - b.x || a.y - b.y).map(p => { const v = cultivar(p.cultivarId);
           return `<g class="pin" data-pin="${p.id}"><title>${esc(v.name)}</title>
-            <circle cx="${p.x}" cy="${p.y}" r="${hitR}" fill="transparent"/>
+            <circle data-hit="1" cx="${p.x}" cy="${p.y}" r="${hitR}" fill="transparent"/>
             ${focusId===p.id?`<circle data-focus="1" cx="${p.x}" cy="${p.y}" r="${R*2.1}" fill="none"
                     stroke="#C25A6D" stroke-width="${px(2)}" opacity=".55"/>`:""}
-            ${cl.ids.has(p.id)?`<circle cx="${p.x}" cy="${p.y}" r="${R*1.5}" fill="none"
+            ${cl.ids.has(p.id)?`<circle data-crowd="1" cx="${p.x}" cy="${p.y}" r="${R*1.5}" fill="none"
                     stroke="#8A3D4C" stroke-width="${Math.min(R*0.3, px(2))}"/>`:""}
-            <circle cx="${p.x}" cy="${p.y}" r="${R}" fill="${pinFill(p)}"
+            <circle data-dot="1" cx="${p.x}" cy="${p.y}" r="${R}" fill="${pinFill(p)}"
                     stroke="#fff" stroke-width="${Math.min(R*0.22, px(1.4))}"/>
             ${showNames?`<text data-py="${p.y}" x="${p.x}" y="${p.y+R+px(13)}" text-anchor="middle" font-family="Lato,sans-serif"
                   font-size="${px(12)}" fill="#3A3A3C" stroke="#FDF9F7" stroke-width="${px(2.4)}"
@@ -3787,17 +3787,35 @@ function wireMap(){
     return pt.matrixTransform(svg.getScreenCTM().inverse()); };
   const clampP = (v,max) => Math.max(0, Math.min(max, Math.round(v*10)/10));
   const byId = new Map(DB.plants.map(p => [p.id, p]));
-  /* A name is a fixed size on the screen, not on the map — so it is written in map
-     units chosen to come out at twelve pixels, and a viewBox that moves under it
-     without a redraw leaves it the wrong size. Everything else on the map is a feature
-     of the ground and is meant to scale; only the lettering is not. Re-sized on every
-     tick of a pinch, which is three attributes on each label that is showing. */
-  function paintLabels(){
+  /* A peony is drawn at a size chosen for the screen rather than for the ground: the
+     dot has a floor under it so it cannot vanish when the whole property is in view,
+     its white edge is a fixed thickness, the rings around it are others, and its name
+     is twelve pixels. All of that is written in map units worked out from the zoom at
+     the moment of drawing — so a pinch, which moves the viewBox without redrawing,
+     left every one of them meaning what it meant before the gesture, and they only
+     came right when the fingers came off. Re-sized on every tick instead. */
+  function paintMarks(){
     const per = (plotW || 390) / view.w;          // screen pixels to the foot, right now
     const ft = n => n / per;
     const R = Math.max(CELL() * 0.38, ft(3.4));
-    const show = CELL() * per >= 30;              // the same threshold a redraw would use
-    svg.querySelectorAll(".pin text").forEach(t => {
+    const cellPx = CELL() * per;
+    const set = (sel, fn) => svg.querySelectorAll(sel).forEach(fn);
+
+    set("[data-hit]",   c => c.setAttribute("r", Math.max(R, ft(15))));
+    set("[data-dot]",   c => { c.setAttribute("r", R);
+                               c.setAttribute("stroke-width", Math.min(R * 0.22, ft(1.4))); });
+    set("[data-focus]", c => { c.setAttribute("r", R * 2.1);
+                               c.setAttribute("stroke-width", ft(2)); });
+    set("[data-crowd]", c => { c.setAttribute("r", R * 1.5);
+                               c.setAttribute("stroke-width", Math.min(R * 0.3, ft(2))); });
+    /* The squares and the names each have a width of square below which a redraw would
+       not draw them at all, so the gesture drops them at the same place. */
+    set("[data-cell]",  r => { r.style.display = cellPx >= 7 ? "" : "none";
+                               r.setAttribute("stroke-width", ft(0.8)); });
+    const gc = svg.querySelector("#ghostCell");
+    if(gc) gc.setAttribute("stroke-width", ft(2.2));
+    set(".pin text", t => {
+      const show = cellPx >= 30;
       t.style.display = show ? "" : "none";
       if(!show) return;
       t.setAttribute("font-size", ft(12));
@@ -3807,7 +3825,7 @@ function wireMap(){
   }
   const applyView = () => {
     svg.setAttribute("viewBox", `${view.x} ${view.y} ${view.w} ${viewH()}`);
-    paintLabels();
+    paintMarks();
   };
 
   /* One gesture at a time, whatever number of fingers arrives. `mode` is what this

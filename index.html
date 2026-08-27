@@ -2751,7 +2751,37 @@ function mapped(){ return DB.plants.filter(p => live(p) && p.x !== null && p.y !
    several times the distance, and not even the same hue. The settled rose sits between
    the planted one and the --rose-dark the Established pill already wears, which is that
    colour weighted for a filled dot rather than for text. */
-const INK_PLAN = "#3A3A3C", ROSE_PLANTED = "#C25A6D", ROSE_SETTLED = "#9E4657";
+const INK_PLAN = "#3A3A3C", ROSE_PLANTED = "#C25A6D", ROSE_SETTLED = "#8A3D4C";
+/* A peony is drawn at a size chosen for the screen rather than for the ground: the dot
+   has a floor under it so it cannot vanish with the whole property in view, its white
+   edge is a fixed thickness, the rings around it are others, and its name is twelve
+   pixels. All of it is written in map units worked out from the zoom at the moment of
+   drawing, so a wheel that moves the viewBox without redrawing leaves every one of them
+   meaning what it meant before. Re-sized on each notch instead. */
+function paintMarks(svg){
+  const per = (plotW || 1200) / view.w;
+  const ft = n => n / per;
+  const R = Math.max(CELL() * 0.38, ft(3.4));
+  const cellPx = CELL() * per;
+  const set = (sel, fn) => svg.querySelectorAll(sel).forEach(fn);
+  set("[data-hit]",   c => c.setAttribute("r", Math.max(R, ft(15))));
+  set("[data-dot]",   c => { c.setAttribute("r", R);
+                             c.setAttribute("stroke-width", Math.min(R * 0.22, ft(1.4))); });
+  set("[data-focus]", c => { c.setAttribute("r", R * 2.1);
+                             c.setAttribute("stroke-width", ft(2)); });
+  set("[data-crowd]", c => { c.setAttribute("r", R * 1.5);
+                             c.setAttribute("stroke-width", Math.min(R * 0.3, ft(2))); });
+  set("[data-cell]",  r => { r.style.display = cellPx >= 7 ? "" : "none";
+                             r.setAttribute("stroke-width", ft(0.8)); });
+  set(".pin text", t => {
+    const show = cellPx >= 30;
+    t.style.display = show ? "" : "none";
+    if(!show) return;
+    t.setAttribute("font-size", ft(12));
+    t.setAttribute("stroke-width", ft(2.4));
+    t.setAttribute("y", Number(t.dataset.py) + R + ft(13));
+  });
+}
 const pinFill = p => p.status === PLANNED ? INK_PLAN
                    : p.status === ESTABLISHED ? ROSE_SETTLED : ROSE_PLANTED;
 function unmapped(){ return DB.plants.filter(p => live(p) && (p.x === null || p.y === null)); }
@@ -3031,14 +3061,14 @@ function renderMap(app){
            stroke="${pinFill(p)}" stroke-width="${px(0.8)}" opacity=".55"/>`).join("") : ""}
         ${mapped().map(p => { const v = cultivar(p.cultivarId);
           return `<g class="pin" data-pin="${p.id}"><title>${esc(v.name)}</title>
-            <circle cx="${p.x}" cy="${p.y}" r="${hitR}" fill="transparent"/>
+            <circle data-hit="1" cx="${p.x}" cy="${p.y}" r="${hitR}" fill="transparent"/>
             ${focusId===p.id?`<circle data-focus="1" cx="${p.x}" cy="${p.y}" r="${R*2.1}" fill="none"
                     stroke="#C25A6D" stroke-width="${px(2)}" opacity=".55"/>`:""}
-            ${cl.ids.has(p.id)?`<circle cx="${p.x}" cy="${p.y}" r="${R*1.5}" fill="none"
+            ${cl.ids.has(p.id)?`<circle data-crowd="1" cx="${p.x}" cy="${p.y}" r="${R*1.5}" fill="none"
                     stroke="#8A3D4C" stroke-width="${Math.min(R*0.3, px(2))}"/>`:""}
-            <circle cx="${p.x}" cy="${p.y}" r="${R}" fill="${pinFill(p)}"
+            <circle data-dot="1" cx="${p.x}" cy="${p.y}" r="${R}" fill="${pinFill(p)}"
                     stroke="#fff" stroke-width="${Math.min(R*0.22, px(1.4))}"/>
-            ${showNames?`<text x="${p.x}" y="${p.y+R+px(13)}" text-anchor="middle" font-family="Lato,sans-serif"
+            ${showNames?`<text data-py="${p.y}" x="${p.x}" y="${p.y+R+px(13)}" text-anchor="middle" font-family="Lato,sans-serif"
                   font-size="${px(12)}" fill="#3A3A3C" stroke="#FDF9F7" stroke-width="${px(2.4)}"
                   paint-order="stroke">${esc(v.name)}</text>`:""}
           </g>`; }).join("")}
@@ -3225,6 +3255,7 @@ function wireMap(){
       clampView();
     }
     svg.setAttribute("viewBox", `${view.x} ${view.y} ${view.w} ${viewH()}`);
+    paintMarks(svg);
     clearTimeout(wheelT);
     wheelT = setTimeout(() => render(), 90);
   }, {passive:false});
