@@ -570,6 +570,9 @@ const SEASONS = ["Very Early","Early","Early-Mid","Mid","Mid-Late","Late","Very 
    calendar makes it Established. Divided comes off the divide. Lost and Sold you say. */
 const STATUSES = ["Acquired","Planned","Planted","Established","Divided","Lost","Sold"];
 const ACQUIRED = "Acquired", PLANNED = "Planned", PLANTED = "Planted";
+/* A crown that has been in two Junes. Named here because the map now draws it in a
+   colour of its own. */
+const ESTABLISHED = "Established";
 /* A root you have and have not put in yet. Both stages answer to one click. */
 const NOT_YET_IN = [ACQUIRED, PLANNED];
 const BLOOM_TYPES = ["Single","Semi-Double","Double","Bomb","Japanese","Anemone"];
@@ -1042,7 +1045,7 @@ function ageIntoEstablished(){
   const on = today();
   const moved = DB.plants.filter(p =>
     p.status === PLANTED && p.plantedDate && settledOn(p.plantedDate) <= on);
-  for(const p of moved) p.status = "Established";
+  for(const p of moved) p.status = ESTABLISHED;
   return moved.length;
 }
 /* Ordered, Received, Ready to Plant and Wishlist were four names for one fact: a root
@@ -1101,7 +1104,7 @@ function seasonTotals(year){
 }
 
 function pillClass(s){
-  if(s==="Established") return "est";
+  if(s===ESTABLISHED) return "est";
   if(s===PLANTED) return "plant";
   /* Planned is drawn as the outline of Planted, because that is exactly what it is. */
   if(s===PLANNED) return "plan";
@@ -2493,7 +2496,7 @@ function markDivisionsPlanted(id, date){
 
 /* Only something in the ground can be lifted — a root still on order or already gone
    has nothing to cut. */
-const canDivide = p => !isDraft(p) && ["Planted","Established"].includes(p.status);
+const canDivide = p => !isDraft(p) && [PLANTED, ESTABLISHED].includes(p.status);
 const dividing = p => !!draftDivide && draftDivide.from === p.id;
 function blankDivide(p){
   return { from: p.id, date: today(), lines: [{eyes:""},{eyes:""},{eyes:""}] };
@@ -3368,12 +3371,23 @@ function mapped(){ return DB.plants.filter(p => live(p) && p.x !== null && p.y !
    three statuses ever reach the map — Planned, Planted, Established — so that is the
    whole of the question. Crowded used to be the charcoal one; it is a ring now, so it
    can flag a plan and a planted peony alike rather than being drowned out by one. */
-const pinFill = p => p.status === PLANNED ? "#3A3A3C" : "#C25A6D";
+/* Charcoal for a plan, and two depths of rose for what is actually in the ground: the
+   lighter for a crown newly planted, the deeper for one that has settled. Far enough
+   apart to tell at a glance, near enough that they plainly say the same thing — a peony
+   that is there. The plan/planted split is a different kind of difference and looks it:
+   several times the distance, and not even the same hue. The settled rose sits between
+   the planted one and the --rose-dark the Established pill already wears, which is that
+   colour weighted for a filled dot rather than for text. */
+const INK_PLAN = "#3A3A3C", ROSE_PLANTED = "#C25A6D", ROSE_SETTLED = "#9E4657";
+const pinFill = p => p.status === PLANNED ? INK_PLAN
+                   : p.status === ESTABLISHED ? ROSE_SETTLED : ROSE_PLANTED;
 /* The colour a peony is about to become, for the thing being carried towards a square.
    One not in the ground yet lands as a plan whichever of the two it starts as: Acquired
    becomes Planned on the way down, and Planned stays Planned. So what is carried is
    drawn as what it will be, rather than as what everything else happens to be. */
-const dropFill = p => NOT_YET_IN.includes(p.status) ? "#3A3A3C" : "#C25A6D";
+/* What it will be once it is down — which for anything not in the ground yet is a
+   plan, and otherwise is whatever it already is. */
+const dropFill = p => NOT_YET_IN.includes(p.status) ? INK_PLAN : pinFill(p);
 /* Only a plan moves, which is exactly the charcoal ones. A crown in the ground has
    roots where it is: where it sits is a fact about the farm rather than a thought you
    are still having, and the way it leaves the map is the divide — something that
