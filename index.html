@@ -328,6 +328,35 @@ label{display:block;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-t
           background:var(--line);touch-action:none;user-select:none;-webkit-user-select:none}
 .cropview img{pointer-events:none}
 
+/* ---------- receipts ---------- */
+/* A receipt is a tall thing and there is only ever one, so it gets the width of the
+   sheet and a fixed height to sit in — enough to recognise which receipt it is at a
+   glance, and a tap away from being read properly. */
+.receiptthumb{
+  display:block;width:100%;height:150px;padding:0;overflow:hidden;position:relative;
+  border:1px solid var(--line);border-radius:var(--radius);background:var(--card);
+}
+.receiptthumb img{display:block;width:100%;height:100%;object-fit:cover;object-position:top center}
+.receiptthumb:active{border-color:var(--rose);box-shadow:0 0 0 3px var(--rose-tint)}
+/* Said out loud over the top of it, because a cover crop can hide that there is more. */
+.receiptthumb .more{
+  position:absolute;left:0;right:0;bottom:0;padding:6px 10px;font-size:11.5px;font-weight:700;
+  letter-spacing:.04em;text-transform:uppercase;color:#fff;text-align:left;
+  background:linear-gradient(to top,rgba(58,58,60,.72),rgba(58,58,60,0));
+}
+/* Reading it: fitted to the sheet to begin with, and a tap away from full size with
+   the box itself doing the scrolling. Nothing to pinch — the viewport is locked. */
+.receiptview{
+  width:100%;overflow:auto;-webkit-overflow-scrolling:touch;background:var(--line);
+  border:1px solid var(--line);border-radius:var(--radius);
+}
+.receiptview img{display:block;margin:0 auto;max-width:100%;height:auto}
+.receiptview.zoomed img{max-width:none;width:auto}
+/* A ledger row that has one says so, quietly, where the chevron cannot be mistaken
+   for it. */
+.hasreceipt{display:inline-flex;vertical-align:-2px;margin-right:5px;color:var(--graphite-30)}
+.hasreceipt svg{width:13px;height:13px}
+
 /* ---------- tables (only the small line tables inside sheets) ---------- */
 table{width:100%;border-collapse:collapse;font-size:14px}
 th{text-align:left;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
@@ -736,6 +765,10 @@ const ICON = {
   back:`<svg viewBox="0 0 8 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 1L1 7l6 6"/></svg>`,
   plus:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>`,
   camera:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5h3.6L8.2 6h7.6l1.6 2.5H21v11H3z"/><circle cx="12" cy="13.6" r="3.4"/></svg>`,
+  /* A paperclip rather than a second till roll: the ledger tab already wears one of
+     those, and at 13px on a row the two would be the same grey mark. A clip says
+     "something is attached to this" and cannot be read as anything else. */
+  clip:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 11.5 12.2 18.3a4.6 4.6 0 0 1-6.5-6.5l7.6-7.6a3 3 0 0 1 4.3 4.3l-7.6 7.6a1.5 1.5 0 0 1-2.1-2.1l6.8-6.8"/></svg>`,
 };
 
 /* Every panel in this edition is the same shape: a handle that says it can be pulled
@@ -822,9 +855,9 @@ function dataSheet(){
     <div class="kvlist section">${state}${counts}</div>
     <button class="btn primary wide section" id="dsSend">Send Back</button>
     <p class="small muted" style="margin:10px 0 0">iOS opens the share sheet: pick Drive or
-      Files and save over the <strong>${esc(dataFile())}</strong> you keep there. Photographs
-      taken here travel inside the file until the repository is connected, which is the
-      only thing that files them into <strong>${esc(photoDir())}/</strong> on their own.</p>
+      Files and save over the <strong>${esc(dataFile())}</strong> you keep there. Photographs and
+      receipts taken here travel inside the file until the repository is connected, which is the
+      only thing that files them into <strong>${esc(pictureDir())}/</strong> on their own.</p>
     <div class="hairline"></div>
     <button class="btn wide" id="dsOther">Open a Different File</button>
     <p class="small muted" style="margin:10px 0 0">This closes what is open here.${
@@ -856,7 +889,7 @@ function repoSheet(){
   const body = `
     ${bookPicker()}
     <p class="small muted" style="margin:0">Written straight into
-      <strong>${esc(Store.label || "your records")}</strong> as you go, photographs and all \u2014 the same
+      <strong>${esc(Store.label || "your records")}</strong> as you go, photographs and receipts and all \u2014 the same
       records the desktop is reading. Every save is kept in the history, so nothing you
       type today can quietly lose what you typed yesterday.</p>
     <div class="kvlist section">
@@ -913,7 +946,7 @@ function wireDataSheet(){
     dataOpen = false;
     try{
       DB = await Store.openBook(to);
-      await Photos.loadAll(DB);
+      await Pictures.loadAll(DB);
       dirty = false; openPlant = null; editing = null; openTxn = null;
       view = null; plotAR = null; fitW = null; userMoved = false; focusId = null;
       bloomYear = null; ledRange = "all"; ledFrom = ledTo = "";
@@ -951,7 +984,7 @@ function wireDataSheet(){
       : "Some edits have not been sent back yet. Open a different file anyway?")) return;
     if(Store.isRepo) await Store.disconnectRepo();
     await Store.forget();
-    Photos.clear();
+    Pictures.clear();
     DB = null; dirty = false; dataOpen = false;
     Store.mode = null; Store.label = null;
     location.hash = "#/dashboard";
@@ -1303,7 +1336,7 @@ function renderConnect(app){
 
   if(Store.servedCapable) choices.push(`<button class="btn wide" id="cServed">Read the File Beside This Page</button>
     <p class="small muted" style="margin:0 0 16px">This page is being served, so <strong>${esc(dataFile())}</strong>
-      and <strong>${esc(photoDir())}/</strong> next to it can be read directly — photographs and all.</p>`);
+      and <strong>${esc(pictureDir())}/</strong> next to it can be read directly — pictures and all.</p>`);
 
   app.innerHTML = `
   <div class="connect">
@@ -1322,7 +1355,7 @@ function renderConnect(app){
       const db = await fn();
       if(!db) return;
       DB = db;
-      await Photos.loadAll(DB);
+      await Pictures.loadAll(DB);
       dirty = false; cachedSave = null;
       location.hash = "#/dashboard";
       render(); settleOnLoad();
@@ -1711,33 +1744,92 @@ function bloomAvatar(v){
   </span>`;
 }
 
+/* ---------- reading a picture off the phone ---------- */
+/* Everything that comes out of a camera roll goes through here first: laid onto a
+   canvas at whatever size is wanted, then encoded. Two callers, two very different
+   ideas of what "small enough" means, and both of them below. */
+function loadPicture(file){
+  return new Promise((res, rej) => {
+    if(!file || !/^image\//.test(file.type)) return rej(new Error("That is not an image"));
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); res(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error("Could not read that image")); };
+    img.src = url;
+  });
+}
+function drawTo(img, px){
+  const k = Math.min(1, px / Math.max(img.width, img.height));
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(img.width * k));
+  c.height = Math.max(1, Math.round(img.height * k));
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  return c;
+}
+const encode = (c, q) => new Promise(res => c.toBlob(res, PHOTO_MIME, q));
+
 /* The whole frame is kept, only made small enough to keep — so the crop can be changed
    later without going back to the camera roll. A long edge of 800 is sharp at any zoom
    the circle can reach, and small enough to travel inside the records when there is no
-   photos/ folder to put it in. */
-const PHOTO_PX = 800;
-function takePhoto(v, file, thenAdjust){
-  if(!file || !/^image\//.test(file.type)) return toast("That is not an image");
-  const url = URL.createObjectURL(file), img = new Image();
-  img.onload = async () => {
-    const k = Math.min(1, PHOTO_PX / Math.max(img.width, img.height));
-    const c = document.createElement("canvas");
-    c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
-    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-    URL.revokeObjectURL(url);
-    const blob = await new Promise(res => c.toBlob(res, PHOTO_MIME, 0.72));
-    if(!blob) return toast("Could not read that image");
-    try{ await Photos.write(v, blob); }
-    catch(e){ return toast("Could not save the photo: " + e.message); }
-    v.photoCrop = { ar: c.width / c.height, zoom: 1, x: 0, y: 0 };
-    markDirty();
-    /* Straight into framing it, which is what you wanted to do next anyway. */
-    if(thenAdjust !== false){ photoFor = v.id; draftCrop = { ...v.photoCrop }; }
-    render();
-    toast(`Photo set for ${v.name || "this cultivar"}`);
-  };
-  img.onerror = () => { URL.revokeObjectURL(url); toast("Could not read that image"); };
-  img.src = url;
+   photos/ folder to put it in.
+
+   This one is not squeezed any further than that, and deliberately: a bloom is looked
+   at rather than read, and the colour and the light are the whole point of having a
+   photograph of it at all. What gets squeezed is the receipts, below. */
+const PHOTO_PX = 800, PHOTO_Q = 0.72;
+async function takePhoto(v, file, thenAdjust){
+  let img;
+  try{ img = await loadPicture(file); }catch(e){ return toast(e.message); }
+  const c = drawTo(img, PHOTO_PX);
+  const blob = await encode(c, PHOTO_Q);
+  if(!blob) return toast("Could not read that image");
+  try{ await Photos.write(v, blob); }
+  catch(e){ return toast("Could not save the photo: " + e.message); }
+  v.photoCrop = { ar: c.width / c.height, zoom: 1, x: 0, y: 0 };
+  markDirty();
+  /* Straight into framing it, which is what you wanted to do next anyway. */
+  if(thenAdjust !== false){ photoFor = v.id; draftCrop = { ...v.photoCrop }; }
+  render();
+  toast(`Photo set for ${v.name || "this cultivar"}`);
+}
+
+/* ---------- a receipt ---------- */
+/* A receipt is read, not admired, so it is squeezed until it is cheap to keep and no
+   further. The long edge stays generous — a total set in six-point type on a curling
+   till roll needs the pixels, and shrinking is what actually destroys small print —
+   and the quality is what gives way instead, one step at a time, until the file comes
+   in under the budget. JPEG blurs an edge before it loses it, which is exactly the
+   trade you want here and exactly the one you would not want on a bloom.
+
+   Anything still over budget at the lowest quality is a photograph of a whole desk
+   with a receipt on it, so it is taken down a size and offered the ladder again. What
+   comes back is whatever got smallest; nothing is ever refused for being too big. */
+const RECEIPT_PX = [1600, 1200], RECEIPT_Q = [0.62, 0.5, 0.4, 0.32];
+const RECEIPT_BUDGET = 200 * 1024;
+async function squeezeReceipt(img){
+  let best = null;
+  for(const px of RECEIPT_PX){
+    const c = drawTo(img, px);
+    for(const q of RECEIPT_Q){
+      const blob = await encode(c, q);
+      if(!blob) continue;
+      if(!best || blob.size < best.size) best = blob;
+      if(blob.size <= RECEIPT_BUDGET) return blob;
+    }
+  }
+  return best;
+}
+/* Held on this device and written to the repository, exactly like a photograph — the
+   shelf below the seam does not care which kind of picture it is holding. */
+async function takeReceipt(t, file){
+  let img;
+  try{ img = await loadPicture(file); }catch(e){ return toast(e.message); }
+  const blob = await squeezeReceipt(img);
+  if(!blob) return toast("Could not read that image");
+  try{ await Receipts.write(t, blob); }
+  catch(e){ return toast("Could not save the receipt: " + e.message); }
+  markDirty(); saveNow();
+  render();
+  toast(`Receipt kept · ${Math.round(blob.size / 1024)} KB`);
 }
 
 /* ---------- framing the photo ---------- */
@@ -2813,7 +2905,11 @@ function ledWords(f, t){
    and those plants have positions and histories hanging off it; correcting one
    means deleting it and recording it again, which is deliberate rather than easy. */
 let openTxn = null, armDelete = false, armPlant = false;
-function closeTxnView(){ openTxn = null; armDelete = armPlant = false; editing = null; render(); }
+/* Which transaction's receipt is being read, and whether it is being read at full size
+   rather than fitted to the sheet. */
+let receiptFor = null, receiptZoom = false;
+function closeReceipt(){ receiptFor = null; receiptZoom = false; }
+function closeTxnView(){ openTxn = null; armDelete = armPlant = false; editing = null; closeReceipt(); render(); }
 
 /* An order is a batch, and a batch goes in the ground together: one weekend, one date,
    one click. That is the only moment here worth a button of its own — a box that has
@@ -2881,7 +2977,8 @@ function ledRows(list){
       go: true,
       data: ` data-tx="${x.id}"`,
       lead: esc(x.counterparty),
-      meta: `${fmtDate(x.date)}${x.description ? " · " + esc(x.description) : ""}`,
+      meta: `${x.receipt ? `<span class="hasreceipt" title="Receipt kept">${ICON.clip}</span>` : ""}${
+        fmtDate(x.date)}${x.description ? " · " + esc(x.description) : ""}`,
       trail: `<span class="num">${signed(x)}</span>
         <span class="sub">${(x.allocations || []).length
           ? `${x.allocations.length} plant${x.allocations.length > 1 ? "s" : ""}${
@@ -2947,7 +3044,13 @@ function renderLedger(app){
      untouched — so handlers attached earlier survive and the order stopped mattering. */
   const open = openTxn === null ? null : DB.transactions.find(x => x.id === openTxn);
   if(openTxn !== null && !open) openTxn = null;
+  /* One sheet at a time. Reading a receipt takes the transaction's place rather than
+     dimming it a second time — two backdrops over one another read as a mistake — and
+     closing the receipt hands the transaction straight back. */
+  const reading = open && receiptFor === open.id && Receipts.url(open) ? open : null;
+  if(receiptFor !== null && !reading) closeReceipt();
   if(draftTxn) app.insertAdjacentHTML("beforeend", txnSheet());
+  else if(reading) app.insertAdjacentHTML("beforeend", receiptPanel(reading));
   else if(open) app.insertAdjacentHTML("beforeend", txnView(open));
 
   app.querySelectorAll("[data-lr]").forEach(el => el.onclick = () => {
@@ -2963,6 +3066,7 @@ function renderLedger(app){
   $("#addTxn").onclick = () => { draftTxn = blankTxn("order"); render(); };
   wireLedRows(app);
   if(draftTxn) wireTxnSheet(app);
+  else if(reading) wireReceiptPanel(reading);
   else if(open) wireTxnView(app, open);
 }
 
@@ -3027,6 +3131,23 @@ function txnView(x){
     <p class="small muted" style="margin:-2px 0 4px">How it was filed is yours to change.
       Who, when and how much are the record of what happened, so they stay put.</p>` : ""}`;
 
+  /* The receipt, kept with the entry rather than in a shoebox — which is the whole
+     point of it being here: the record and the proof of it are one tap apart. The strip
+     is only enough to know which receipt this is; reading it is a panel of its own. */
+  const rc = Receipts.url(x);
+  const receipt = `
+    <div class="between" style="margin-top:24px"><h3 style="margin:0">Receipt</h3>
+      <span class="small muted">${rc ? "kept with this entry" : "none yet"}</span></div>
+    ${rc
+      ? `<button class="receiptthumb" id="tvReceipt" style="margin-top:10px" aria-label="Read this receipt">
+           <img src="${esc(rc)}" alt="Receipt from ${esc(x.counterparty || "")}">
+           <span class="more">Tap to read</span>
+         </button>`
+      : `<button class="btn wide" id="tvAddReceipt" style="margin-top:10px">Add a Receipt</button>
+         <p class="small muted" style="margin:8px 0 0">Photograph it and it is squeezed on the way in —
+           small enough to keep for good, and still large enough to read.</p>`}
+    <input type="file" accept="image/*" id="tvReceiptFile" hidden>`;
+
   const paid = n ? `
     <div class="between" style="margin-top:24px"><h3 style="margin:0">What it paid for</h3>
       <span class="small muted">${stageSummary(ps)}</span></div>
@@ -3047,9 +3168,59 @@ function txnView(x){
     title: k.label,
     sub: fmtDate(x.date),
     stacked: true,
-    body: facts + paid,
+    body: facts + receipt + paid,
     foot
   });
+}
+
+/* ---------- reading the receipt ---------- */
+/* Fitted to the sheet to begin with, because the first question is always which receipt
+   this is. A tap gives it its full size and lets the box do the scrolling: the viewport
+   is locked against pinching, so the picture has to carry its own way in. */
+function receiptPanel(x){
+  const src = Receipts.url(x);
+  return sheet("rc", {
+    title: "Receipt",
+    sub: `${esc(x.counterparty || "")}${x.date ? " · " + fmtDate(x.date) : ""}`,
+    body: `<div class="receiptview${receiptZoom ? " zoomed" : ""}" id="rcView"
+             style="max-height:${Math.max(240, Math.round(window.innerHeight * 0.52))}px">
+        <img id="rcImg" src="${esc(src || "")}" alt="Receipt from ${esc(x.counterparty || "")}" draggable="false">
+      </div>
+      <p class="small muted" style="margin:12px 0 0;text-align:center">Tap it for full size, then drag
+        to read the small print. Tap again to fit it back.</p>
+      <input type="file" accept="image/*" id="rcFile" hidden>`,
+    foot: `<button class="btn danger" id="rcRemove">Remove</button>
+      <div class="acts">
+        <button class="btn" id="rcReplace">Replace</button>
+        <button class="btn primary" id="rcDone">Done</button>
+      </div>`
+  });
+}
+function wireReceiptPanel(x){
+  const view = $("#rcView"), img = $("#rcImg"), pick = $("#rcFile");
+  /* Back to the transaction it belongs to, which is what is underneath. */
+  const shut = () => { closeReceipt(); render(); };
+  if(pick) pick.onchange = e => {
+    const f = e.target.files && e.target.files[0];
+    if(f) takeReceipt(x, f);
+  };
+  $("#rcClose").onclick = shut;
+  $("#rcBack").onclick = e => { if(e.target.id === "rcBack") shut(); };
+  $("#rcDone").onclick = shut;
+  $("#rcReplace").onclick = () => pick && pick.click();
+  $("#rcRemove").onclick = async () => {
+    await Receipts.remove(x);        /* takes the file with it, not just the reference */
+    closeReceipt();
+    markDirty(); saveNow(); render();
+    toast("Receipt removed");
+  };
+  /* Painted onto the element rather than re-rendered: a render would replace the
+     picture under the finger and throw the scroll position away with it. */
+  if(img && view) img.onclick = () => {
+    receiptZoom = !receiptZoom;
+    view.classList.toggle("zoomed", receiptZoom);
+    if(receiptZoom){ view.scrollTop = 0; view.scrollLeft = 0; }
+  };
 }
 
 /* ---------- recording one ---------- */
@@ -3113,7 +3284,8 @@ function txnSheet(){
     stacked: t.kind === "order",
     body: `<div class="seg" role="tablist">${TXN_KINDS.map(k =>
         `<button data-kind="${k.id}" class="${k.id === t.kind ? "on" : ""}">${titleCase(k.label)}</button>`).join("")}</div>
-      <div style="margin-top:18px">${t.kind === "order" ? orderForm : simpleForm}</div>`,
+      <div style="margin-top:18px">${t.kind === "order" ? orderForm : simpleForm}</div>
+      ${draftReceiptRow()}`,
     foot: `<span class="small muted" id="txSum"></span>
       <div class="acts">
         <button class="btn" id="txDiscard">Discard</button>
@@ -3124,6 +3296,17 @@ function txnSheet(){
 function wireTxnView(app, x){
   $("#tvClose").onclick = closeTxnView;
   $("#tvBack").onclick = e => { if(e.target.id === "tvBack") closeTxnView(); };
+
+  /* The receipt is wired whatever else the sheet is asking, so it stays reachable —
+     it is a fact about the transaction rather than a step in editing one. */
+  const pick = $("#tvReceiptFile");
+  if(pick) pick.onchange = e => {
+    const f = e.target.files && e.target.files[0];
+    if(f) takeReceipt(x, f);
+  };
+  const add = $("#tvAddReceipt"); if(add) add.onclick = () => pick && pick.click();
+  const thumb = $("#tvReceipt");
+  if(thumb) thumb.onclick = () => { receiptFor = x.id; receiptZoom = false; render(); };
   app.querySelectorAll("[data-goplant]").forEach(tr => tr.onclick = () => {
     openTxn = null; armDelete = false;
     location.hash = "#/plant/" + tr.dataset.goplant;
@@ -3146,12 +3329,16 @@ function wireTxnView(app, x){
     $("#tvDel").onclick = () => { armDelete = true; armPlant = false; editing = null; render(); };
     return;
   }
-  const remove = alsoPlants => {
+  const remove = async alsoPlants => {
     /* Snapshot the ids first: deletePlant rewrites allocations as it goes. */
     const ids = (x.allocations || []).filter(a => a.target === "plant").map(a => a.targetId);
     if(alsoPlants) ids.forEach(deletePlant);
+    /* The file goes too. A number freed by a deletion is handed straight back out by
+       nextTxId, so a receipt left behind under it would turn up on somebody else's
+       entry. */
+    if(x.receipt) await Receipts.remove(x).catch(() => {});
     DB.transactions = DB.transactions.filter(t => t.id !== x.id);
-    openTxn = null; armDelete = false;
+    openTxn = null; armDelete = false; closeReceipt();
     markDirty(); saveNow(); render();
   };
   $("#tvCancel").onclick = () => { armDelete = false; render(); };
@@ -3169,12 +3356,45 @@ const TXN_KINDS = [
   { id:"income",  label:"Income",      dir:"income"  },
 ];
 let draftTxn = null;
+/* The receipt is photographed at the counter, which is before the transaction exists
+   and so before it has a number to be filed under. It waits here as a blob — already
+   squeezed, so what is held is what will be written — and is filed the moment the entry
+   is saved and has an id of its own. */
 function blankTxn(kind = "order", carry = {}){
   return { kind, date: carry.date || today(),
     counterparty: carry.counterparty || "", description: "", amount: "", units: "",
-    category: "", shipping: "", tax: "", lines: [{ name:"", qty:1, price:"" }] };
+    category: "", shipping: "", tax: "", lines: [{ name:"", qty:1, price:"" }],
+    receipt: carry.receipt || null, receiptUrl: carry.receiptUrl || null };
 }
-function discardTxnDraft(){ draftTxn = null; clearNew(); }
+function discardTxnDraft(){
+  /* Only the preview is let go here; a draft that was saved has already had its blob
+     written, and one that was thrown away has nothing to write. */
+  if(draftTxn && draftTxn.receiptUrl) URL.revokeObjectURL(draftTxn.receiptUrl);
+  draftTxn = null; clearNew();
+}
+/* Filed once the entry has a number. Recording it is the thing that mattered, so a
+   receipt that will not write says so and leaves the transaction standing. */
+async function fileReceipt(tx, blob){
+  if(!blob) return;
+  try{ await Receipts.write(tx, blob); }
+  catch(e){ return toast("Recorded, but the receipt did not save: " + e.message); }
+  markDirty(); saveNow(); render();
+}
+function draftReceiptRow(){
+  const t = draftTxn;
+  return `
+    <div class="between" style="margin:22px 0 0"><h3 style="margin:0">Receipt</h3>
+      <span class="small muted">optional</span></div>
+    ${t.receiptUrl
+      ? `<button class="receiptthumb" id="t-rcThumb" style="margin-top:10px" aria-label="Replace this receipt">
+           <img src="${esc(t.receiptUrl)}" alt="">
+           <span class="more">Tap to replace</span>
+         </button>
+         <button class="btn wide" id="t-rcDrop" style="margin-top:8px">Remove the Receipt</button>`
+      : `<button class="btn wide" id="t-rcAdd" style="margin-top:10px">Photograph the Receipt</button>`}
+    <input type="file" accept="image/*" id="t-rcFile" hidden>
+    <p class="small muted" style="margin:8px 0 0">It is filed against this entry once you save.</p>`;
+}
 
 const hasContent = l => !!(String(l.name).trim() || String(l.price).trim());
 /* Keep exactly one empty line at the end, so there is always somewhere to type
@@ -3231,12 +3451,35 @@ function wireTxnSheet(app){
 
   app.querySelectorAll("[data-kind]").forEach(b => b.onclick = () => {
     if(b.dataset.kind === t.kind) return;
-    draftTxn = blankTxn(b.dataset.kind, { date: t.date, counterparty: t.counterparty });
+    draftTxn = blankTxn(b.dataset.kind, { date: t.date, counterparty: t.counterparty,
+                                          receipt: t.receipt, receiptUrl: t.receiptUrl });
     render();
   });
 
   wirePicker($("#t-party"), "party", v => { t.counterparty = v; paintTxn(); });
   const date = $("#t-date");   if(date) date.onchange = e => { t.date = e.target.value; };
+
+  const rcFile = $("#t-rcFile");
+  const rcAdd = $("#t-rcAdd"), rcThumb = $("#t-rcThumb"), rcDrop = $("#t-rcDrop");
+  if(rcAdd) rcAdd.onclick = () => rcFile.click();
+  if(rcThumb) rcThumb.onclick = () => rcFile.click();
+  if(rcDrop) rcDrop.onclick = () => {
+    URL.revokeObjectURL(t.receiptUrl);
+    t.receipt = null; t.receiptUrl = null;
+    render();
+  };
+  if(rcFile) rcFile.onchange = async e => {
+    const f = e.target.files && e.target.files[0];
+    if(!f) return;
+    let img;
+    try{ img = await loadPicture(f); }catch(err){ return toast(err.message); }
+    const blob = await squeezeReceipt(img);
+    if(!blob) return toast("Could not read that image");
+    if(t.receiptUrl) URL.revokeObjectURL(t.receiptUrl);
+    t.receipt = blob; t.receiptUrl = URL.createObjectURL(blob);
+    render();
+    toast(`Receipt ready · ${Math.round(blob.size / 1024)} KB`);
+  };
 
   if(t.kind === "order"){
     app.querySelectorAll("[data-f]").forEach(el => {
@@ -3262,17 +3505,20 @@ function wireTxnSheet(app){
     };
     const un = $("#t-units"); if(un) un.oninput = e => { t.units = e.target.value; };
     $("#t-desc").oninput = e => { t.description = e.target.value; };
-    $("#txSave").onclick = () => {
+    $("#txSave").onclick = async () => {
       const amt = cents(t.amount);
       if(!amt || !t.counterparty.trim()) return toast("Needs a name and an amount");
       const u = t.kind === "income" && String(t.units).trim() !== ""
         ? Math.max(0, Math.round(Number(t.units) || 0)) : null;
-      DB.transactions.push({ id: nextTxId(), date: t.date || null,
+      const tx = { id: nextTxId(), date: t.date || null,
         direction: t.kind === "income" ? "income" : "expense",
         counterparty: t.counterparty.trim(), description: t.description.trim() || null,
         amount: amt/100, category: t.category || "Other", allocations: [],
-        ...(u === null ? {} : { units: u }) });
+        ...(u === null ? {} : { units: u }) };
+      DB.transactions.push(tx);
+      const rc = t.receipt;
       discardTxnDraft(); markDirty(); saveNow(); render();
+      await fileReceipt(tx, rc);
     };
   }
   paintTxn();
@@ -3313,7 +3559,7 @@ function previewAlloc(filled, ship, tax = 0){
   return out;
 }
 
-function commitOrder(filled, ship, tax = 0){
+async function commitOrder(filled, ship, tax = 0){
   const vendor = (draftTxn.counterparty || "").trim();
   if(!vendor) return toast("Vendor is required");
   const rows = previewAlloc(filled, ship, tax);
@@ -3339,18 +3585,21 @@ function commitOrder(filled, ship, tax = 0){
     pid++;
   }
 
-  DB.transactions.push({
+  const tx = {
     id: nextTxId(), date: draftTxn.date || null, direction:"expense",
     counterparty: vendor,
     description: `${rows.length} root${rows.length > 1 ? "s" : ""}` +
       (ship || tax ? ` (${[ship ? `$${(ship/100).toFixed(2)} shipping` : "", tax ? `$${(tax/100).toFixed(2)} tax` : ""].filter(Boolean).join(", ")})` : ""),
     amount: total/100, category:"Plants", allocations
-  });
+  };
+  DB.transactions.push(tx);
 
+  const rc = draftTxn.receipt;
   discardTxnDraft();
   markDirty(); saveNow();
   toast(`${rows.length} plant${rows.length > 1 ? "s" : ""} added`);
   location.hash = "#/collection";
+  await fileReceipt(tx, rc);
 }
 /* ---------- property map ---------- */
 const live = p => !["Lost","Sold","Divided"].includes(p.status);
@@ -4179,6 +4428,7 @@ document.addEventListener("keydown", e => {
   if(draftCultivar){ discardCultivarDraft(); return render(); }
   if(draftBloom){ discardBloomDraft(); return render(); }
   if(draftTxn){ discardTxnDraft(); return render(); }
+  if(receiptFor !== null){ closeReceipt(); return render(); }
   if(openTxn !== null){
     if(armDelete || armPlant){ armDelete = armPlant = false; return render(); }
     return closeTxnView();
@@ -4243,7 +4493,7 @@ if("serviceWorker" in navigator)
     if(!(cachedSave && cachedSave.unsent) && Store.servedCapable){
       try{
         DB = await Store.openServed();
-        await Photos.loadAll(DB);
+        await Pictures.loadAll(DB);
         cachedSave = null;
       }catch(e){ /* not served after all, or no file beside us */ }
     }

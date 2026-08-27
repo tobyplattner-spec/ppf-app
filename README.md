@@ -17,10 +17,30 @@ One face, and it is a phone. There was a desktop one at `index.html` and a phone
 and with it the second copy of everything both faces knew.
 
 The records are **not** here. They live in a private repository of their own —
-`farm-data.json` in its root, and photographs in `photos/` beside it — and this app
+`farm-data.json` in its root, and pictures in `photos/` beside it — and this app
 reads and writes them through the GitHub contents API using a fine-grained token that
 each device is given once and keeps to itself. Nothing in this repository is secret,
 which is why it can be public and served by GitHub Pages.
+
+## Two kinds of picture
+
+A cultivar keeps a photograph and a transaction keeps its receipt, and they sit in
+directories of their own — `photos/cultivars/` and `photos/receipts/` — because they
+want opposite things and a folder listing should say which is which.
+
+A bloom is looked at. Its photograph is drawn down to a long edge of 800 and kept at
+quality 0.72, and nothing further is asked of it: the colour and the light are the
+whole reason for having one.
+
+A receipt is read. It keeps a long edge of 1600, because shrinking is what actually
+destroys small print, and gives away quality instead — one step at a time down a
+ladder until the file comes in under about 200 KB. In practice a phone photograph of a
+till roll lands somewhere around 40–150 KB, legible end to end. One too busy to fit
+even at the bottom of the ladder is kept at its smallest rather than refused.
+
+Below the seam neither kind is a special case: `store.js` builds one shelf twice, and
+everything about holding a picture — this device's copy of it, writing it, taking it
+away, what is owed when there is no signal — is written once.
 
 Every save is a commit, so the history of the farm is the history of the file.
 

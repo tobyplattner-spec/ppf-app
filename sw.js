@@ -5,14 +5,14 @@
 
    One face now, at the root. m.html is a redirect kept for home-screen icons added when
    the app lived there; it is in the shell so those still open with no signal. */
-/* Bumped deliberately for the retirement of the desktop face: the phone app is the root
-   page now, and a shell still holding the old desktop index.html would go on serving it.
-   A new name empties the old one on activate rather than trusting network-first to
-   catch every file on the way past.
+/* Bumped for the receipts: store.js and index.html both moved, and a shell still holding
+   yesterday's pair would go on serving an app that knows nothing about them. A new name
+   empties the old one on activate rather than trusting network-first to catch every file
+   on the way past.
 
    Everything named here has to exist: addAll is all-or-nothing, and one missing file
    fails the install and leaves the device with no shell at all rather than an old one. */
-const CACHE = "ppf-v8";
+const CACHE = "ppf-v9";
 const SHELL = [
   "./", "./index.html", "./m.html", "./store.js",
   "./manifest.webmanifest",

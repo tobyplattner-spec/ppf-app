@@ -22,6 +22,10 @@ global.indexedDB = {
 };
 global.navigator = { onLine: true };
 global.location  = { protocol: "https:", href: "https://x.test/" };
+/* The shelves hand out a blob URL for every picture they hold, which is a browser
+   thing. Nothing here looks at what comes back, only that holding one does not throw. */
+global.URL.createObjectURL = () => "blob:test";
+global.URL.revokeObjectURL = () => {};
 
 // ---- the repository, and what we make it answer ----
 let repo, calls;
@@ -61,6 +65,9 @@ const b64=t=>Buffer.from(t,"utf8").toString("base64");
 const seed=(name,obj)=>repo.set(name,{content:b64(JSON.stringify(obj)),sha:"sha0"});
 const FARM={schemaVersion:1,farm:{name:"f"},property:{widthFt:10,depthFt:10,cellFt:3},
   cultivars:[],plants:[],blooms:[],transactions:[]};
+const TX={id:7,date:"2026-05-04",direction:"expense",counterparty:"Adelman",
+  description:null,amount:20,category:"Books",allocations:[]};
+const jpeg=()=>new Blob([Buffer.from("not really a jpeg, but bytes are bytes")]);
 
 (async () => {
 console.log("\n-- B: a write refused with 404 reports itself, not a TypeError --");
@@ -106,6 +113,45 @@ ok(farmShelf.who === "farm", "the farm's shelf still holds the farm");
 ok(sandShelf.who === "sandbox", "the sandbox has a shelf of its own");
 await Store.openBook("farm");
 
+console.log("\n-- E: the two kinds of picture are filed apart --");
+reset(); shelf.clear();
+seed("farm-data.json", {...FARM, cultivars:[{id:"rosea",name:"Rosea",photo:null}], transactions:[{...TX}]});
+seed("sandbox-data.json", {...FARM, farm:{name:"sandbox"}});
+await Store.connectRepo({owner:"o",repo:"r",token:"t",branch:"main"});
+let db = await Store.load();
+ok(S.photoDir() === "photos/cultivars", "a cultivar photograph has a directory of its own");
+ok(S.receiptDir() === "photos/receipts", "and a receipt has another");
+const tx = db.transactions[0], cv = db.cultivars[0];
+await S.Receipts.write(tx, jpeg());
+await S.Photos.write(cv, jpeg());
+ok(tx.receipt === "photos/receipts/7.jpg", "the transaction points at its receipt by path");
+ok(repo.has("photos/receipts/7.jpg"), "and the file is where the path says");
+ok(cv.photo === "photos/cultivars/rosea.jpg", "the cultivar points at its photograph");
+ok(repo.has("photos/cultivars/rosea.jpg"), "filed nowhere near the receipts");
+await S.Receipts.remove(tx);
+ok(tx.receipt === null, "removing a receipt clears the record");
+ok(!repo.has("photos/receipts/7.jpg"), "and takes the file with it");
+ok(repo.has("photos/cultivars/rosea.jpg"), "leaving the photograph alone");
+
+console.log("\n-- F: the sandbox files its receipts under its own roof --");
+await Store.openBook("sandbox");
+ok(S.receiptDir() === "sandbox-photos/receipts", "the sandbox has its own receipts directory");
+ok(S.photoDir() === "sandbox-photos/cultivars", "and its own photographs directory");
+await Store.openBook("farm");
+
+console.log("\n-- G: a photograph and a receipt of the same number do not queue over each other --");
+reset(); shelf.clear();
+await Outbox.clear();
+await Outbox.queuePhoto("photo:7", "photos/cultivars/7.jpg", "AAAA", "Photograph");
+await Outbox.queuePhoto("receipt:7", "photos/receipts/7.jpg", "BBBB", "Receipt");
+ok((await Outbox.pending()) === 2, "both are owed, not one over the other");
+seed("farm-data.json", FARM);
+await Store.connectRepo({owner:"o",repo:"r",token:"t",branch:"main"});
+await Store.flush();
+ok(repo.has("photos/cultivars/7.jpg"), "the photograph goes home");
+ok(repo.has("photos/receipts/7.jpg"), "and so does the receipt");
+ok((await Outbox.pending()) === 0, "and nothing is left owed");
+
 console.log("\n-- folder mode is gone --");
 ok(Store.supported === undefined, "Store.supported removed");
 ok(Store.state === undefined, "Store.state() removed (was already dead)");
@@ -125,6 +171,13 @@ const co = fn("commitOrder");
 ok(!/x\.name\.toLowerCase\(\)/.test(co), "commitOrder no longer calls .toLowerCase on a possibly-null name");
 ok(/\(x\.name \|\| ""\)\.toLowerCase\(\)/.test(co), "commitOrder guards the name like every other read site");
 ok(!/IDB\.set\("cache"|IDB\.set\("outbox"/.test(app), "no bare book keys anywhere in the app");
+const tp = fn("takePhoto"), sq = fn("squeezeReceipt");
+ok(/drawTo\(img, PHOTO_PX\)/.test(tp), "a bloom is drawn at the size blooms are drawn at");
+ok(/encode\(c, PHOTO_Q\)/.test(tp), "and encoded at the quality blooms are kept at");
+ok(!/squeezeReceipt|RECEIPT_/.test(tp), "the receipt squeeze never touches a photograph of a bloom");
+ok(/RECEIPT_PX = \[1600/.test(app), "a receipt keeps a long edge small print can survive");
+ok(/RECEIPT_BUDGET/.test(sq), "and gives away quality against a budget instead");
+ok(/return best/.test(sq), "one too busy to fit is still kept, at its smallest");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
