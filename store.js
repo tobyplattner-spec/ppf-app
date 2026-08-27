@@ -2,8 +2,9 @@
    The app sits on top of this file and nothing else. It knows where the records live
    and how to get them back; it knows nothing whatever about peonies.
 
-   The records are farm-data.json in a private repository, and the photographs are
-   files in photos/ beside it, one to a cultivar. A repository rather than a folder
+   The records are farm-data.json in a private repository, and the pictures are files
+   in photos/ beside it — a photograph of each cultivar in photos/cultivars/, and the
+   receipt for a transaction in photos/receipts/. A repository rather than a folder
    because a phone cannot be handed a folder, but it can always be handed a URL — and
    because every save then lands as a commit, which is a complete history of the farm
    for free, and an undo for a bad afternoon.
@@ -28,7 +29,7 @@
    used to be a third and a fourth — ?v= on the script tag in each face — which had to
    be kept in step by hand and were not. The worker asks the network first for anything
    on this origin, so the query string was only ever belt over braces. */
-const BUILD = "6";
+const BUILD = "7";
 
 /* ---------- this browser's own shelf ---------- */
 const IDB = {
@@ -46,6 +47,14 @@ const IDB = {
 /* ---------- names and shapes ---------- */
 const DATA_FILE = "farm-data.json";
 const PHOTO_DIR = "photos";
+/* Two kinds of picture are kept, and they want different things. A cultivar's
+   photograph is there for the look of the thing and is left as sharp as it came. A
+   receipt is there to be read, so it is squeezed hard on the way in — small print
+   survives a great deal of squeezing, and a shoebox of receipts should not outweigh
+   the farm. They are told apart by the directory they sit in rather than by the name
+   of the file, so a folder listing says which is which. */
+const CULTIVAR_SUB = "cultivars";
+const RECEIPT_SUB  = "receipts";
 
 /* ---------- which set of books is open ---------- */
 /* One repository, two sets of records: the farm's own, and a sandbox to poke at where
@@ -63,16 +72,22 @@ const BOOKS = {
              commit: "Sandbox" },
 };
 let BOOK = "farm";
-const book      = () => BOOKS[BOOK] || BOOKS.farm;
-const dataFile  = () => book().data;
-const photoDir  = () => book().photos;
+const book       = () => BOOKS[BOOK] || BOOKS.farm;
+const dataFile   = () => book().data;
+/* The root the two kinds of picture share, and one directory each beneath it. */
+const pictureDir = () => book().photos;
+const photoDir   = () => pictureDir() + "/" + CULTIVAR_SUB;
+const receiptDir = () => pictureDir() + "/" + RECEIPT_SUB;
 /* The farm's keys are the bare names; anything else is prefixed. */
 const bookKey   = base => BOOK === "farm" ? base : base + ":" + BOOK;
 const PHOTO_MIME = "image/jpeg";   /* "image/webp" here is ~30% smaller at the same quality */
 const PHOTO_EXT = ".jpg";
 
-const photoFile = v => v.id + PHOTO_EXT;
-const photoRef = v => photoDir() + "/" + photoFile(v);
+/* Named for the record it belongs to, in the directory its kind belongs in. Both are
+   the shelves' own idea of where a picture goes, so there is one place to change it. */
+const photoFile  = o => o.id + PHOTO_EXT;
+const photoRef   = v => photoDir() + "/" + photoFile(v);
+const receiptRef = t => receiptDir() + "/" + photoFile(t);
 const isInline = p => typeof p === "string" && p.startsWith("data:");
 const hasPhotoRef = p => typeof p === "string" && p.length > 0;
 
@@ -240,162 +255,227 @@ const Git = {
   }
 };
 
-/* ---------- the photographs ---------- */
-const Photos = {
-  base:null, git:false, urls:new Map(), missing:new Set(), shas:new Map(),
+/* ---------- the pictures ---------- */
+/* Two kinds of picture are kept in the repository and neither knows anything about the
+   other: the photograph of a cultivar, and the receipt for a transaction. What it takes
+   to hold one — the shelf of live URLs, this device's own copy so the app opens with no
+   signal, writing it, taking it away — is the same for both, so it is written once here
+   and made twice below. What differs is named in the spec each one is made with: which
+   name its file goes under, which field on the record points at it, which records can
+   carry one at all, and what to call it in a commit message.
 
-  /* Served mode: photos/ is just a path next to the page. Read only. */
-  mountWeb(){ Photos.git = false; Photos.base = new URL("./", location.href).href; },
-  /* Repository mode: photos/ is a directory of files reached over the wire, and kept
-     on this device afterwards so the app opens instantly and works out of range. */
-  mountGit(){ Photos.base = null; Photos.git = true; },
-  /* Picked mode: nowhere to put a file — every circle falls back to its drawing until a
-     new photograph is taken, and that one is carried inside the records themselves. */
-  mountNone(){ Photos.base = null; Photos.git = false; },
+   A shelf is keyed by the record's own id, and the two shelves are separate maps, so a
+   cultivar called 3 and transaction 3 can never be handed each other's picture. */
+function shelf(spec){
+  const S = {
+    ref: spec.ref,                 /* (o) => where this record's picture belongs */
+    field: spec.field,             /* what the record carries the path in */
+    records: spec.records,         /* (db) => the records that can carry one */
+    noun: spec.noun,               /* "Photograph" | "Receipt", for the commit message */
+    key: spec.key,                 /* this kind's name on the device's shelf */
+    forget: spec.forget || (() => {}),   /* anything else cleared when the picture goes */
 
-  /* What the circle should show, or nothing. A record pointing at a file that is not
-     there falls back to the drawing rather than a broken picture. */
-  url(v){
-    const held = Photos.urls.get(v.id);
-    if(held) return held;
-    /* A photograph taken with no signal rides inside the record until it can be
-       lifted out into a file of its own. */
-    if(isInline(v.photo)) return v.photo;
-    return null;
-  },
+    base:null, git:false, urls:new Map(), missing:new Set(), shas:new Map(),
 
-  /* One-time lift out of the old shape: an inline photo becomes a file of its own and
-     the record keeps only the path to it. Read-through modes cannot write, so they
-     leave the records exactly as they are. */
-  async adopt(db){
-    if(!Photos.git) return 0;
-    let n = 0;
-    for(const v of (db.cultivars || [])){
-      if(!isInline(v.photo)) continue;
-      try{ await Photos.write(v, dataUrlToBlob(v.photo)); n++; }
-      catch(e){ if(e.kind !== "offline") throw e; }   /* out of range: it waits in the record */
-    }
-    return n;
-  },
+    /* One name per picture across both shelves, for the queue of what is owed. */
+    owedKey: o => S.key + ":" + o.id,
+    said: o => S.noun + " " + (spec.of ? spec.of(o) : S.ref(o)),
 
-  /* Opened together rather than one after another — forty reads in a row is forty
-     rounds of waiting before the app appears. */
-  async loadAll(db){
-    Photos.clear();
-    const want = (db.cultivars || []).filter(v => hasPhotoRef(v.photo) && !isInline(v.photo));
-    if(Photos.git){
-      await Promise.all(want.map(v => Photos.fromGit(v)));
-    }else if(Photos.base){
-      /* Served: the picture is at a plain URL, so it is loaded once to find out
-         whether it is really there. Only the ones that answer are kept. */
-      await Promise.all(want.map(v => new Promise(res => {
-        const src = new URL(v.photo, Photos.base).href;
-        const im = new Image();
-        im.onload  = () => { Photos.urls.set(v.id, src); res(); };
-        im.onerror = () => { Photos.missing.add(v.id); res(); };
-        im.src = src;
-      })));
-    }else{
-      for(const v of want) Photos.missing.add(v.id);
-    }
-    return Photos.urls.size;
-  },
+    /* Served mode: the directory is just a path next to the page. Read only. */
+    mountWeb(){ S.git = false; S.base = new URL("./", location.href).href; },
+    /* Repository mode: a directory of files reached over the wire, and kept on this
+       device afterwards so the app opens instantly and works out of range. */
+    mountGit(){ S.base = null; S.git = true; },
+    /* Picked mode: nowhere to put a file — the picture rides inside the records
+       themselves until there is somewhere to file it. */
+    mountNone(){ S.base = null; S.git = false; },
 
-  /* This device's own copy of a picture, so that the second opening of the app costs
-     nothing and the hundredth works with no signal at all. */
-  cacheKey: v => bookKey("photo") + ":" + v.id,
-  async cached(v){ return IDB.get(Photos.cacheKey(v)); },
-  async keep(v, blob, sha){ await IDB.set(Photos.cacheKey(v), { blob, sha, path: v.photo, at: Date.now() }); },
-  async drop(v){ await IDB.del(Photos.cacheKey(v)); },
+    /* What to show, or nothing. A record pointing at a file that is not there falls
+       back to nothing rather than to a broken picture. */
+    url(o){
+      const held = S.urls.get(o.id);
+      if(held) return held;
+      /* A picture taken with no signal rides inside the record until it can be
+         lifted out into a file of its own. */
+      if(isInline(o[S.field])) return o[S.field];
+      return null;
+    },
 
-  async fromGit(v){
-    const c = await Photos.cached(v).catch(() => null);
-    if(c && c.blob && c.path === v.photo){
-      Photos.hold(v, URL.createObjectURL(c.blob));
-      if(c.sha) Photos.shas.set(v.id, c.sha);
-      return true;
-    }
-    try{
-      const got = await Git.getBlob(v.photo);
-      if(!got){ Photos.missing.add(v.id); return false; }
-      Photos.hold(v, URL.createObjectURL(got.blob));
-      await Photos.keep(v, got.blob, null);
-      return true;
-    }catch(e){
-      Photos.missing.add(v.id);
-      return false;
-    }
-  },
-
-  /* Writes the picture, then points the record at it — as a file wherever there is
-     somewhere to put one, and inside the record itself where there is not. */
-  async write(v, blob){
-    if(Photos.git){
-      const path = photoRef(v);
-      const bytes = new Uint8Array(await blob.arrayBuffer());
-      const b64 = bytesToB64(bytes);
-      /* Held on this device first. If the wire is down the picture is still safe and
-         still shows, and the sending of it joins the queue. */
-      v.photo = path;
-      Photos.hold(v, URL.createObjectURL(blob));
-      await Photos.keep(v, blob, Photos.shas.get(v.id) || null);
-      try{
-        /* Writing over a picture needs the sha of the one already there. A sha handed
-           back by an earlier write is trustworthy; otherwise it is asked for, and a
-           404 simply means this is the first photograph of this cultivar. */
-        let sha = Photos.shas.get(v.id);
-        if(sha === undefined) sha = await Git.shaOf(path);
-        const put = await Git.put(path, b64, sha || null, "Photograph of " + (v.name || v.id));
-        if(put){ Photos.shas.set(v.id, put); await Photos.keep(v, blob, put); }
-      }catch(e){
-        if(e.kind === "conflict"){
-          /* Someone replaced this picture elsewhere; take their sha and put ours over
-             it, since a photograph has no merge and the old one is still in history. */
-          const sha = await Git.shaOf(path).catch(() => null);
-          const put = await Git.put(path, b64, sha, "Photograph of " + (v.name || v.id));
-          if(put) Photos.shas.set(v.id, put);
-        }else if(e.kind === "offline"){
-          await Outbox.queuePhoto(v.id, path, b64);
-        }else throw e;
+    /* One-time lift out of the old shape: an inline picture becomes a file of its own
+       and the record keeps only the path to it. Read-through modes cannot write, so
+       they leave the records exactly as they are. */
+    async adopt(db){
+      if(!S.git) return 0;
+      let n = 0;
+      for(const o of S.records(db)){
+        if(!isInline(o[S.field])) continue;
+        try{ await S.write(o, dataUrlToBlob(o[S.field])); n++; }
+        catch(e){ if(e.kind !== "offline") throw e; }   /* out of range: it waits in the record */
       }
-    }else{
-      Photos.hold(v, null);
-      v.photo = await blobToDataUrl(blob);
-    }
-    Photos.missing.delete(v.id);
-    return v.photo;
-  },
+      return n;
+    },
 
-  async remove(v){
-    const path = hasPhotoRef(v.photo) && !isInline(v.photo) ? v.photo : photoRef(v);
-    if(Photos.git){
-      await Photos.drop(v).catch(() => {});
-      try{ await Git.del(path, Photos.shas.get(v.id) || null, "Remove photograph " + path); }
-      catch(e){ if(e.kind === "offline") await Outbox.queuePhoto(v.id, path, null); }
-      Photos.shas.delete(v.id);
-    }
-    Photos.hold(v, null);
-    v.photo = null; v.photoCrop = null;
-  },
+    /* Opened together rather than one after another — forty reads in a row is forty
+       rounds of waiting before the app appears. */
+    async loadAll(db){
+      S.clear();
+      const want = S.records(db).filter(o => hasPhotoRef(o[S.field]) && !isInline(o[S.field]));
+      if(S.git){
+        await Promise.all(want.map(o => S.fromGit(o)));
+      }else if(S.base){
+        /* Served: the picture is at a plain URL, so it is loaded once to find out
+           whether it is really there. Only the ones that answer are kept. */
+        await Promise.all(want.map(o => new Promise(res => {
+          const src = new URL(o[S.field], S.base).href;
+          const im = new Image();
+          im.onload  = () => { S.urls.set(o.id, src); res(); };
+          im.onerror = () => { S.missing.add(o.id); res(); };
+          im.src = src;
+        })));
+      }else{
+        for(const o of want) S.missing.add(o.id);
+      }
+      return S.urls.size;
+    },
 
-  /* One live blob URL per cultivar; the one it replaces is handed back to the browser.
-     A plain http URL passed to revokeObjectURL is simply ignored, so served mode can
-     share the same shelf without a second code path. */
-  hold(v, url){
-    const old = Photos.urls.get(v.id);
-    if(old) URL.revokeObjectURL(old);
-    if(url) Photos.urls.set(v.id, url); else Photos.urls.delete(v.id);
-  },
-  clear(){
-    for(const u of Photos.urls.values()) URL.revokeObjectURL(u);
-    Photos.urls.clear(); Photos.missing.clear();
-  }
+    /* This device's own copy of a picture, so that the second opening of the app costs
+       nothing and the hundredth works with no signal at all. */
+    cacheKey: o => bookKey(S.key) + ":" + o.id,
+    async cached(o){ return IDB.get(S.cacheKey(o)); },
+    async keep(o, blob, sha){ await IDB.set(S.cacheKey(o), { blob, sha, path: o[S.field], at: Date.now() }); },
+    async drop(o){ await IDB.del(S.cacheKey(o)); },
+
+    async fromGit(o){
+      const c = await S.cached(o).catch(() => null);
+      if(c && c.blob && c.path === o[S.field]){
+        S.hold(o, URL.createObjectURL(c.blob));
+        if(c.sha) S.shas.set(o.id, c.sha);
+        return true;
+      }
+      try{
+        const got = await Git.getBlob(o[S.field]);
+        if(!got){ S.missing.add(o.id); return false; }
+        S.hold(o, URL.createObjectURL(got.blob));
+        await S.keep(o, got.blob, null);
+        return true;
+      }catch(e){
+        S.missing.add(o.id);
+        return false;
+      }
+    },
+
+    /* Writes the picture, then points the record at it — as a file wherever there is
+       somewhere to put one, and inside the record itself where there is not. */
+    async write(o, blob){
+      if(S.git){
+        const path = S.ref(o);
+        const was = o[S.field];
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        const b64 = bytesToB64(bytes);
+        /* Held on this device first. If the wire is down the picture is still safe and
+           still shows, and the sending of it joins the queue. */
+        o[S.field] = path;
+        S.hold(o, URL.createObjectURL(blob));
+        await S.keep(o, blob, S.shas.get(o.id) || null);
+        try{
+          /* Writing over a picture needs the sha of the one already there. A sha handed
+             back by an earlier write is trustworthy; otherwise it is asked for, and a
+             404 simply means this is the first picture of this record. */
+          let sha = S.shas.get(o.id);
+          if(sha === undefined) sha = await Git.shaOf(path);
+          const put = await Git.put(path, b64, sha || null, S.said(o));
+          if(put){ S.shas.set(o.id, put); await S.keep(o, blob, put); }
+        }catch(e){
+          if(e.kind === "conflict"){
+            /* Someone replaced this picture elsewhere; take their sha and put ours over
+               it, since a picture has no merge and the old one is still in history. */
+            const sha = await Git.shaOf(path).catch(() => null);
+            const put = await Git.put(path, b64, sha, S.said(o));
+            if(put) S.shas.set(o.id, put);
+          }else if(e.kind === "offline"){
+            await Outbox.queuePhoto(S.owedKey(o), path, b64, S.noun);
+          }else throw e;
+        }
+        /* A picture that used to live somewhere else — an older edition of the app filed
+           these in the root of photos/ — leaves nothing behind at the old name. */
+        if(hasPhotoRef(was) && !isInline(was) && was !== path)
+          await Git.del(was, null, "Remove " + was).catch(() => {});
+      }else{
+        S.hold(o, null);
+        o[S.field] = await blobToDataUrl(blob);
+      }
+      S.missing.delete(o.id);
+      return o[S.field];
+    },
+
+    async remove(o){
+      const at = o[S.field];
+      const path = hasPhotoRef(at) && !isInline(at) ? at : S.ref(o);
+      if(S.git){
+        await S.drop(o).catch(() => {});
+        try{ await Git.del(path, S.shas.get(o.id) || null, "Remove " + S.noun.toLowerCase() + " " + path); }
+        catch(e){ if(e.kind === "offline") await Outbox.queuePhoto(S.owedKey(o), path, null, S.noun); }
+        S.shas.delete(o.id);
+      }
+      S.hold(o, null);
+      o[S.field] = null;
+      S.forget(o);
+    },
+
+    /* One live blob URL per record; the one it replaces is handed back to the browser.
+       A plain http URL passed to revokeObjectURL is simply ignored, so served mode can
+       share the same shelf without a second code path. */
+    hold(o, url){
+      const old = S.urls.get(o.id);
+      if(old) URL.revokeObjectURL(old);
+      if(url) S.urls.set(o.id, url); else S.urls.delete(o.id);
+    },
+    clear(){
+      for(const u of S.urls.values()) URL.revokeObjectURL(u);
+      S.urls.clear(); S.missing.clear();
+    }
+  };
+  return S;
+}
+
+/* The photograph of a cultivar: one per cultivar, named for it, and the crop that says
+   which part of it the circle shows goes when the photograph does. */
+const Photos = shelf({
+  ref: photoRef, field: "photo", key: "photo", noun: "Photograph",
+  records: db => db.cultivars || [],
+  of: v => "of " + (v.name || v.id),
+  forget: v => { v.photoCrop = null; },
+});
+
+/* The receipt for a transaction: one per transaction, named for its number. There is
+   no crop — a receipt is shown whole, because the part you want is never the middle. */
+const Receipts = shelf({
+  ref: receiptRef, field: "receipt", key: "receipt", noun: "Receipt",
+  records: db => db.transactions || [],
+  of: t => "for transaction " + t.id,
+});
+
+/* Both shelves at once, which is what everything outside this file actually wants:
+   mounting, emptying and loading are never about one kind of picture alone. */
+const Pictures = {
+  all: [Photos, Receipts],
+  mountWeb(){ for(const S of Pictures.all) S.mountWeb(); },
+  mountGit(){ for(const S of Pictures.all) S.mountGit(); },
+  mountNone(){ for(const S of Pictures.all) S.mountNone(); },
+  clear(){ for(const S of Pictures.all) S.clear(); },
+  /* Both books can name a record the same thing, so changing books empties these
+     rather than reaching into them. */
+  forgetShas(){ for(const S of Pictures.all) S.shas.clear(); },
+  async loadAll(db){ let n = 0; for(const S of Pictures.all) n += await S.loadAll(db); return n; },
+  async adopt(db){ let n = 0; for(const S of Pictures.all) n += await S.adopt(db); return n; },
 };
 
 /* ---------- what is owed ---------- */
 /* Everything that was done out of range and has not been sent yet. The records are
-   one entry because only the latest matters; photographs are one entry each because
-   they are separate files and each stands alone. */
+   one entry because only the latest matters; pictures are one entry each because they
+   are separate files and each stands alone. The key is the shelf's name and the
+   record's id together, so a cultivar's photograph and a transaction's receipt can
+   never queue over one another. */
 const Outbox = {
   async read(){ return (await IDB.get(bookKey("outbox"))) || { data:null, photos:{} }; },
   async write(o){ await IDB.set(bookKey("outbox"), o); },
@@ -405,13 +485,13 @@ const Outbox = {
     o.data = { text, at: Date.now() };
     await Outbox.write(o);
   },
-  async queuePhoto(id, path, b64){
+  async queuePhoto(id, path, b64, noun){
     const o = await Outbox.read();
     o.photos = o.photos || {};
-    o.photos[id] = { path, b64, at: Date.now() };   /* b64 null means: delete it */
+    o.photos[id] = { path, b64, noun, at: Date.now() };   /* b64 null means: delete it */
     await Outbox.write(o);
   },
-  /* How much is still owed: the records count as one, and each photograph as itself. */
+  /* How much is still owed: the records count as one, and each picture as itself. */
   async pending(){
     const o = await Outbox.read();
     return (o.data ? 1 : 0) + Object.keys(o.photos || {}).length;
@@ -471,11 +551,11 @@ const Store = {
     Store.unsent = false;
     Store.lastSync = null;
     Store._first = null;
-    if(Store.mode === "github"){ Store.label = Git.label; Photos.mountGit(); }
-    /* Both of these are keyed by cultivar id alone, and the two books can name a
-       cultivar the same thing — so they are emptied rather than reached into. */
-    Photos.clear();
-    Photos.shas.clear();
+    if(Store.mode === "github"){ Store.label = Git.label; Pictures.mountGit(); }
+    /* Both of these are keyed by the record's id alone, and the two books can name a
+       record the same thing — so they are emptied rather than reached into. */
+    Pictures.clear();
+    Pictures.forgetShas();
     return BOOK;
   },
   /* The repository puts the edit where it actually belongs rather than parking it. */
@@ -520,7 +600,7 @@ const Store = {
     Store.sha = got.sha;
     Store.unsent = false;
     Store.lastSync = Date.now();
-    Photos.mountGit();
+    Pictures.mountGit();
     Store._first = got.text;
     return true;
   },
@@ -529,7 +609,7 @@ const Store = {
     if(!cfg) return false;
     Store.mode = "github";
     Store.label = Git.label;
-    Photos.mountGit();
+    Pictures.mountGit();
     return true;
   },
   async disconnectRepo(){
@@ -554,7 +634,7 @@ const Store = {
     Store.mode = "served";
     Store.label = dataFile();
     Store.unsent = false;
-    Photos.mountWeb();
+    Pictures.mountWeb();
     return db;
   },
 
@@ -564,7 +644,7 @@ const Store = {
     Store.mode = "picked";
     Store.label = file.name || dataFile();
     Store.unsent = false;
-    Photos.mountNone();
+    Pictures.mountNone();
     return db;
   },
 
@@ -580,9 +660,9 @@ const Store = {
     Store.label = c.label || dataFile();
     Store.unsent = !!c.unsent;
     Store.sha = c.sha || null;
-    if(Store.mode === "github"){ await Git.loadConfig(); Photos.mountGit(); }
-    else if(Store.mode === "served" && Store.servedCapable) Photos.mountWeb();
-    else Photos.mountNone();
+    if(Store.mode === "github"){ await Git.loadConfig(); Pictures.mountGit(); }
+    else if(Store.mode === "served" && Store.servedCapable) Pictures.mountWeb();
+    else Pictures.mountNone();
     return db;
   },
 
@@ -608,7 +688,7 @@ const Store = {
         const db = JSON.parse(c.text);
         Store.sha = c.sha || null;
         Store.unsent = !!c.unsent;
-        await Photos.loadAll(db);
+        await Pictures.loadAll(db);
         return db;
       }
     }
@@ -618,12 +698,12 @@ const Store = {
     if(owed.data && owed.data.text){ text = owed.data.text; Store.unsent = true; }
     Store.sha = sha;
     const db = JSON.parse(text);
-    const moved = await Photos.adopt(db);
-    await Photos.loadAll(db);
+    const moved = await Pictures.adopt(db);
+    await Pictures.loadAll(db);
     await Store.keepLocal(text);
     if(moved){
       await Store.save(db);
-      Store.say(moved + " photograph" + (moved === 1 ? "" : "s") + " lifted into " + photoDir() + "/");
+      Store.say(moved + " picture" + (moved === 1 ? "" : "s") + " lifted into " + pictureDir() + "/");
     }
     Store.flush().catch(() => {});   /* what is owed goes now, quietly */
     return db;
@@ -695,7 +775,7 @@ const Store = {
     const o = await Outbox.read(); o.data = null; await Outbox.write(o);
     await Store.keepLocal(got.text);
     const db = JSON.parse(got.text);
-    await Photos.loadAll(db);
+    await Pictures.loadAll(db);
     return db;
   },
 
@@ -720,9 +800,12 @@ const Store = {
     let sent = 0;
 
     for(const [id, p] of Object.entries(o.photos || {})){
+      /* Queued before this edition knew there was more than one kind of picture. */
+      const noun = p.noun || "Photograph";
+      const gone = "Remove " + noun.toLowerCase() + " " + p.path;
       try{
-        if(p.b64 === null || p.b64 === undefined) await Git.del(p.path, null, "Remove photograph " + p.path);
-        else await Git.put(p.path, p.b64, await Git.shaOf(p.path), "Photograph " + p.path);
+        if(p.b64 === null || p.b64 === undefined) await Git.del(p.path, null, gone);
+        else await Git.put(p.path, p.b64, await Git.shaOf(p.path), noun + " " + p.path);
         delete o.photos[id];
         sent++;
       }catch(e){
@@ -730,8 +813,8 @@ const Store = {
         if(e.kind === "conflict"){
           try{
             const sha = await Git.shaOf(p.path);
-            if(p.b64) await Git.put(p.path, p.b64, sha, "Photograph " + p.path);
-            else if(sha) await Git.del(p.path, sha, "Remove photograph " + p.path);
+            if(p.b64) await Git.put(p.path, p.b64, sha, noun + " " + p.path);
+            else if(sha) await Git.del(p.path, sha, gone);
             delete o.photos[id];
             sent++;
           }catch(e2){ /* leave it owed */ }
@@ -780,16 +863,19 @@ Store.build = BUILD;
 
 
 if(typeof window !== "undefined"){
-  window.IDB = IDB; window.Git = Git; window.Photos = Photos; window.Store = Store; window.Outbox = Outbox;
+  window.IDB = IDB; window.Git = Git; window.Store = Store; window.Outbox = Outbox;
+  window.Photos = Photos; window.Receipts = Receipts; window.Pictures = Pictures;
   window.GitError = GitError; window.BUILD = BUILD;
   /* DATA_FILE and PHOTO_DIR stay the farm's own names, which is what everything
-     outside this file has always meant by them; dataFile() and photoDir() are the
-     open book's. */
+     outside this file has always meant by them; dataFile(), pictureDir(), photoDir()
+     and receiptDir() are the open book's. */
   window.DATA_FILE = DATA_FILE; window.PHOTO_DIR = PHOTO_DIR; window.PHOTO_MIME = PHOTO_MIME; window.PHOTO_EXT = PHOTO_EXT;
-  window.BOOKS = BOOKS; window.dataFile = dataFile; window.photoDir = photoDir;
+  window.BOOKS = BOOKS; window.dataFile = dataFile;
+  window.pictureDir = pictureDir; window.photoDir = photoDir; window.receiptDir = receiptDir;
 }
 if(typeof module !== "undefined" && module.exports){
-  module.exports = { IDB, Git, Photos, Store, Outbox, GitError, DATA_FILE, PHOTO_DIR, PHOTO_EXT, PHOTO_MIME,
-    BOOKS, dataFile, photoDir,
-    photoFile, photoRef, isInline, hasPhotoRef, dataUrlToBlob, blobToDataUrl, b64ToBytes, bytesToB64, textToB64, b64ToText };
+  module.exports = { IDB, Git, Photos, Receipts, Pictures, Store, Outbox, GitError,
+    DATA_FILE, PHOTO_DIR, PHOTO_EXT, PHOTO_MIME, CULTIVAR_SUB, RECEIPT_SUB,
+    BOOKS, dataFile, pictureDir, photoDir, receiptDir,
+    photoFile, photoRef, receiptRef, isInline, hasPhotoRef, dataUrlToBlob, blobToDataUrl, b64ToBytes, bytesToB64, textToB64, b64ToText };
 }
