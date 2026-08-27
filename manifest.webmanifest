@@ -1,14 +1,14 @@
 {
-  "id": "ppf-desktop",
+  "id": "ppf-phone",
   "name": "Plattner Peonies & Farmstead",
   "short_name": "Peonies",
-  "description": "The farm records \u2014 plants, bloom, ledger and map.",
+  "description": "The farm, in your pocket.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "orientation": "any",
+  "orientation": "portrait",
   "background_color": "#FDF9F7",
-  "theme_color": "#FDF9F7",
+  "theme_color": "#3A3A3C",
   "icons": [
     {
       "src": "icon-192.png",
