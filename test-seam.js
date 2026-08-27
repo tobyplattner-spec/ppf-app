@@ -247,6 +247,25 @@ ok(/overscroll-behavior:contain/.test(app.slice(app.indexOf(".psbody{"), app.ind
 ok(/function wireReceiptZoom/.test(app), "the viewer pinches and drags");
 ok((app.match(/tall: true/g) || []).length === 2, "the recording sheet and the plant sheet are both full height");
 
+/* A sheet is pulled closed by its handle or its header, and nothing behind one moves.
+   Both of those are the same fact: the browser must not read a drag on those parts as
+   a scroll, because the moment it does it takes the gesture and fires pointercancel. */
+const gest = app.slice(app.indexOf("function wireSheetGestures"), app.indexOf("/* ---------- the data sheet"));
+ok(/\.pshead\{[^}]*touch-action:none/.test(app), "a drag on the header belongs to the app");
+ok(/\.pshandle\{[^}]*touch-action:none/.test(app), "and so does one on the handle");
+ok(/pointercancel/.test(gest), "a pull taken away mid-gesture springs back rather than closing");
+ok(/setPointerCapture/.test(gest), "a finger that wanders off the header keeps talking to it");
+ok(/querySelectorAll\("\.psback"\)/.test(gest) && /e\.preventDefault\(\)/.test(gest),
+   "and a drag anywhere on a sheet that is not its body scrolls nothing at all");
+ok(/closest\("\.psbody"\)/.test(gest), "the body being the one thing that may still scroll");
+
+/* The map's paper is drawn for the widest the view can ever be, so a pinch outwards
+   never runs off the edge of it and waits for the fingers to lift. */
+const bm = app.slice(app.indexOf("function baseMapFor"), app.indexOf("function baseMap("));
+ok(/fitW \|\| computeFitW\(\)/.test(bm), "the paper is sized by how far out the view can go");
+ok(/_baseW !== wide \|\| _baseH !== tall/.test(bm),
+   "and cached on its height as well as its width, or the first guess at the pane's shape sticks");
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
 })().catch(e => { console.error("HARNESS ERROR:", e); process.exit(2); });

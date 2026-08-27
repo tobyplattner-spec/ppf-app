@@ -437,9 +437,13 @@ td.r,th.r{text-align:right}
    under the thumb that was reaching for it. */
 .pspanel.tall{height:92vh}
 @supports (height:100dvh){ .pspanel.tall{height:92dvh} }
-.pshandle{flex:none;padding:8px 0 2px;display:flex;justify-content:center}
+/* The handle and the head are what a sheet is pulled down by, so the browser must not
+   read a drag on them as a scroll — it takes the gesture the moment it decides that,
+   fires pointercancel, and the pull never happens. Which is exactly why pulling a sheet
+   down did nothing and the screen behind moved instead. */
+.pshandle{flex:none;padding:8px 0 2px;display:flex;justify-content:center;touch-action:none}
 .pshandle i{width:38px;height:4px;border-radius:3px;background:var(--graphite-30);display:block}
-.pshead{flex:none;display:flex;align-items:flex-start;gap:10px;padding:6px 18px 0}
+.pshead{flex:none;display:flex;align-items:flex-start;gap:10px;padding:6px 18px 0;touch-action:none}
 .pshead .grow{flex:1;min-width:0}
 .pshead h2{font-size:20px}
 .psbody{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 18px 4px;
@@ -811,10 +815,23 @@ function sheet(id, o){
   </div></div>`;
 }
 
-/* Pulling a sheet down by its handle is how iOS closes one, so every sheet answers to
-   it — wired here, once, over whatever is on screen, rather than in each panel's own
-   wiring. Letting go short of the threshold springs it back. */
+/* Pulling a sheet down by its handle or its header is how iOS closes one, so every
+   sheet answers to it — wired here, once, over whatever is on screen, rather than in
+   each panel's own wiring. Letting go short of the threshold springs it back.
+
+   The other half of the same job: while a sheet is open, nothing behind it moves. Only
+   the sheet's own body scrolls, and it is told not to hand its overflow on; every other
+   part of a sheet, and the dimmed ground around it, has nothing of its own to scroll
+   and must not quietly scroll the page instead. */
 function wireSheetGestures(){
+  document.querySelectorAll(".psback").forEach(back => {
+    if(back.dataset.hold) return;
+    back.dataset.hold = "1";
+    back.addEventListener("touchmove", e => {
+      if(!e.target.closest(".psbody")) e.preventDefault();
+    }, { passive:false });
+  });
+
   document.querySelectorAll(".pspanel").forEach(panel => {
     if(panel.dataset.swipe) return;
     panel.dataset.swipe = "1";
@@ -823,22 +840,33 @@ function wireSheetGestures(){
     const grip = [panel.querySelector(".pshandle"), panel.querySelector(".pshead")].filter(Boolean);
     grip.forEach(g => g.addEventListener("pointerdown", e => {
       if(e.target.closest(".psx")) return;
-      const y0 = e.clientY;
+      const y0 = e.clientY, t0 = Date.now();
       let dy = 0;
       const move = ev => {
         dy = Math.max(0, ev.clientY - y0);
         panel.style.transition = "none";
         panel.style.transform = `translateY(${dy}px)`;
       };
-      const up = () => {
+      /* A pull that is taken away mid-gesture springs back rather than closing: the
+         finger never said so. */
+      const done = answered => {
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", cancel);
         panel.style.transition = "transform .18s ease-out";
         panel.style.transform = "";
-        if(dy > 90) shut.click();
+        /* Far enough, or fast enough. A flick is as clear an answer as a long pull, and
+           on a full-height sheet a long pull is most of the screen. */
+        const quick = dy > 28 && dy / Math.max(1, Date.now() - t0) > 0.45;
+        if(answered && (dy > 90 || quick)) shut.click();
       };
+      const up = () => done(true), cancel = () => done(false);
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", up);
+      window.addEventListener("pointercancel", cancel);
+      /* Keeps a finger that wanders off the header still talking to it. A convenience,
+         so it is taken last and a refusal is shrugged off. */
+      try{ g.setPointerCapture(e.pointerId); }catch(err){ /* still a gesture */ }
     }));
   });
 }
@@ -3902,10 +3930,28 @@ function viewBounds(w, h){
   return { x0: Math.min(0, P.widthFt - w) - pad, x1: Math.max(P.widthFt, w) + pad,
            y0: Math.min(0, P.depthFt - h) - pad, y1: Math.max(P.depthFt, h) + pad };
 }
-/* Redrawn when the zoom changes, which is the only thing it depends on. */
-let _baseW = null, _baseMap = null;
+/* Drawn once, for the widest the view can ever be, rather than for the width it happens
+   to have. Drawing it to the current zoom meant a pinch outwards ran off the edge of the
+   paper: only the viewBox moves during a gesture, so the grid could not catch up until
+   the next full render — which is 130ms after the fingers lift. That is the pause where
+   the grid filled itself in afterwards instead of as you went.
+
+   Drawing the whole of it up front costs exactly what the fully zoomed-out map already
+   cost, since that is the same picture, and there is nothing left to catch up on. */
+let _baseW = null, _baseH = null, _baseMap = null;
 function baseMapFor(w, h){
-  if(_baseW !== w){ _baseW = w; _baseMap = baseMap(viewBounds(w, h)); }
+  /* The view is clamped to fitW on the way out, so that is as far as it can ever go.
+     The height follows from it, the pane's shape being what it is. */
+  const wide = Math.max(w, fitW || computeFitW() || w);
+  const tall = h * (wide / w);
+  /* Both, and not the width alone. The first render happens before the pane has been
+     measured, so it draws at a guessed shape and re-renders once the real one is known —
+     and a cache that only watched the width handed back the guess, which is a paper the
+     right width and nothing like tall enough. The same went for turning the phone. */
+  if(_baseW !== wide || _baseH !== tall){
+    _baseW = wide; _baseH = tall;
+    _baseMap = baseMap(viewBounds(wide, tall));
+  }
   return _baseMap;
 }
 function baseMap(bounds){
