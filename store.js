@@ -21,8 +21,14 @@
 
 /* Which copy of this file is actually running. Printed on the way-in screen, because
    a browser holding yesterday's copy behind a cache looks exactly like a bug in
-   today's, and the two are otherwise impossible to tell apart from a phone. */
-const BUILD = "5";
+   today's, and the two are otherwise impossible to tell apart from a phone.
+
+   Two things carry a version now and they do different jobs: this one is what the app
+   says about itself, and CACHE in sw.js is what actually empties a stale shell. There
+   used to be a third and a fourth — ?v= on the script tag in each face — which had to
+   be kept in step by hand and were not. The worker asks the network first for anything
+   on this origin, so the query string was only ever belt over braces. */
+const BUILD = "6";
 
 /* ---------- this browser's own shelf ---------- */
 const IDB = {
@@ -194,6 +200,14 @@ const Git = {
     const body = { message: message || ("Update " + path), content: b64, branch: Git.cfg.branch };
     if(sha) body.sha = sha;
     const r = await Git.req(Git.url(path), { method:"PUT", body: JSON.stringify(body) });
+    /* req() answers null for a 404, and a 404 on the way *in* is a write that cannot
+       land: a token that has lost Contents write, or a branch renamed out from under
+       this device. Every other call here checks for it; this one used to read .json()
+       off the null and raise a TypeError with no kind on it, so the app printed that
+       instead of the one message it already has for exactly this. */
+    if(!r) throw new GitError("Could not write to " + Git.label + " — check the token still has " +
+      "Contents: read and write on this repository, and that the " + Git.cfg.branch +
+      " branch is still there.", 404, "auth");
     const j = await r.json();
     return j.content ? j.content.sha : null;
   },
@@ -385,28 +399,24 @@ const Photos = {
 const Outbox = {
   async read(){ return (await IDB.get(bookKey("outbox"))) || { data:null, photos:{} }; },
   async write(o){ await IDB.set(bookKey("outbox"), o); },
-  get empty(){ return Outbox._empty !== false; },
 
   async queueData(text){
     const o = await Outbox.read();
     o.data = { text, at: Date.now() };
     await Outbox.write(o);
-    Outbox._empty = false;
   },
   async queuePhoto(id, path, b64){
     const o = await Outbox.read();
     o.photos = o.photos || {};
     o.photos[id] = { path, b64, at: Date.now() };   /* b64 null means: delete it */
     await Outbox.write(o);
-    Outbox._empty = false;
   },
+  /* How much is still owed: the records count as one, and each photograph as itself. */
   async pending(){
     const o = await Outbox.read();
-    const n = (o.data ? 1 : 0) + Object.keys(o.photos || {}).length;
-    Outbox._empty = n === 0;
-    return n;
+    return (o.data ? 1 : 0) + Object.keys(o.photos || {}).length;
   },
-  async clear(){ await IDB.set(bookKey("outbox"), { data:null, photos:{} }); Outbox._empty = true; }
+  async clear(){ await IDB.set(bookKey("outbox"), { data:null, photos:{} }); }
 };
 
 /* ---------- the store ---------- */
@@ -461,7 +471,6 @@ const Store = {
     Store.unsent = false;
     Store.lastSync = null;
     Store._first = null;
-    Outbox._empty = undefined;
     if(Store.mode === "github"){ Store.label = Git.label; Photos.mountGit(); }
     /* Both of these are keyed by cultivar id alone, and the two books can name a
        cultivar the same thing — so they are emptied rather than reached into. */
@@ -678,7 +687,12 @@ const Store = {
     Store.sha = got.sha;
     Store.unsent = false;
     Store.lastSync = Date.now();
-    await Outbox.clear();
+    /* The conflict is about the records, and only the records. A photograph waiting in
+       the outbox is a file of its own with nothing to conflict with, so taking the newer
+       copy of farm-data.json is no reason to drop it: clearing the whole outbox here
+       lost the picture quietly, since the blob stays cached and the phone goes on
+       showing one that never reached the repository. */
+    const o = await Outbox.read(); o.data = null; await Outbox.write(o);
     await Store.keepLocal(got.text);
     const db = JSON.parse(got.text);
     await Photos.loadAll(db);
@@ -741,7 +755,6 @@ const Store = {
     }
 
     await Outbox.write(o);
-    await Outbox.pending();
     return sent;
   },
 

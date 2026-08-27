@@ -14,7 +14,7 @@
    fails the install and leaves the device with no shell at all rather than an old one. */
 const CACHE = "ppf-v8";
 const SHELL = [
-  "./", "./index.html", "./m.html", "./store.js?v=5",
+  "./", "./index.html", "./m.html", "./store.js",
   "./manifest.webmanifest",
   "./icon-180.png", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png"
 ];

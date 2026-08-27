@@ -560,7 +560,7 @@ body.dragging,body.dragging *{user-select:none !important;-webkit-user-select:no
 <nav class="tabbar" id="nav"></nav>
 <div class="toast" id="toast"></div>
 
-<script src="store.js?v=5"></script>
+<script src="store.js"></script>
 <script>
 "use strict";
 /* ---------- constants ---------- */
@@ -626,21 +626,28 @@ function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("sh
 
 /* Handing the finished file back. iOS puts the share sheet up, where Drive and Files
    are both offered and saving on top of the original is one more tap; everything else
-   falls back to a download. Either way the copy that leaves here is the whole record. */
+   falls back to a download. Either way the copy that leaves here is the whole record.
+
+   Everything below says dataFile() rather than DATA_FILE, and keeps what it kept through
+   Store.keepLocal. DATA_FILE is the farm's own name whichever book is open, and "cache"
+   is the farm's own shelf — so the sandbox used to leave here named farm-data.json and
+   land on top of the farm's copy on the way out. The two books are separate files with
+   separate shelves, and this is the one place that had forgotten it. */
 async function sendBack(){
   if(!DB) return false;
+  const name = dataFile();
   const text = JSON.stringify(DB, null, 2);
   const done = async () => {
     Store.unsent = false;
-    await IDB.set("cache", { text, at: Date.now(), label: Store.label, mode: Store.mode, unsent: false });
+    await Store.keepLocal(text);
     paintFileState();
   };
   try{
-    const file = new File([text], DATA_FILE, { type:"application/json" });
+    const file = new File([text], name, { type:"application/json" });
     if(navigator.canShare && navigator.canShare({ files:[file] })){
-      await navigator.share({ files:[file], title: DATA_FILE });
+      await navigator.share({ files:[file], title: name });
       await done();
-      toast("Sent — save it over the one in your farm folder");
+      toast("Sent — save it over the " + name + " you keep");
       return true;
     }
   }catch(e){
@@ -649,11 +656,11 @@ async function sendBack(){
   }
   const url = URL.createObjectURL(new Blob([text], { type:"application/json" }));
   const a = document.createElement("a");
-  a.href = url; a.download = DATA_FILE;
+  a.href = url; a.download = name;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
   await done();
-  toast("Downloaded " + DATA_FILE);
+  toast("Downloaded " + name);
   return true;
 }
 /* ---------- state ---------- */
@@ -3316,7 +3323,12 @@ function commitOrder(filled, ship, tax = 0){
   const allocations = [];
   let pid = nextPlantId();
   for(const r of rows){
-    let v = DB.cultivars.find(x => x.name.toLowerCase() === r.name.toLowerCase());
+    /* A cultivar whose name has been cleared holds null there, which the rest of the app
+       reads as "v.name || ..." everywhere it is drawn. This was the one place that took
+       it as a string, and an order recorded after emptying one name raised a TypeError
+       and recorded nothing. An unnamed cultivar simply matches nothing. */
+    const want = r.name.toLowerCase();
+    let v = DB.cultivars.find(x => (x.name || "").toLowerCase() === want);
     if(!v){
       v = newCultivar(r.name);          // one definition of what a cultivar is
     }
