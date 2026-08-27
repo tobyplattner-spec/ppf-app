@@ -3374,6 +3374,11 @@ const pinFill = p => p.status === PLANNED ? "#3A3A3C" : "#C25A6D";
    becomes Planned on the way down, and Planned stays Planned. So what is carried is
    drawn as what it will be, rather than as what everything else happens to be. */
 const dropFill = p => NOT_YET_IN.includes(p.status) ? "#3A3A3C" : "#C25A6D";
+/* Only a plan moves, which is exactly the charcoal ones. A crown in the ground has
+   roots where it is: where it sits is a fact about the farm rather than a thought you
+   are still having, and the way it leaves the map is the divide — something that
+   happened out there, not a change of mind about where to put it. */
+const movable = p => p.status === PLANNED;
 function unmapped(){ return DB.plants.filter(p => live(p) && (p.x === null || p.y === null)); }
 
 /* The map is a grid of 3 ft cells and a cell holds at most one peony, which is
@@ -3633,7 +3638,7 @@ function syncPlotAR(){
    the very step this is here to save. */
 function unplaceAsk(id){
   const p = findPlant(id);
-  if(!p || p.x === null) return "";
+  if(!p || p.x === null || !movable(p)) return "";
   const v = cultivar(p.cultivarId);
   return `<div class="psback" id="maBack"><div class="askcard">
     <p class="small"><strong>${esc(v.name || "Plant " + p.id)}</strong> — take it off the map?
@@ -3849,6 +3854,10 @@ function wireMap(){
         holdT = setTimeout(() => {
           if(mode !== "pin") return;                 // it became a drag; leave it alone
           mode = null; pts.clear();
+          const p = byId.get(id);
+          /* Holding a crown that is in the ground would otherwise do nothing at all,
+             which is indistinguishable from the hold not having registered. */
+          if(p && !movable(p)) return toast("In the ground — divide it to take it off the map");
           mapAsk = id; mapAskAt = Date.now();
           render();
         }, HOLD_MS);
@@ -3882,6 +3891,16 @@ function wireMap(){
     if(mode === "pin"){
       if(e.pointerId !== down.pointerId) return;
       if(Math.abs(e.clientX - down.x) + Math.abs(e.clientY - down.y) <= DRAG_MIN) return;
+      /* A finger that travels off a crown in the ground takes the map with it instead
+         of the peony — measured from where it first landed, so the map does not jump.
+         A tap on it still opens the plant; only the travelling is different. */
+      const held = byId.get(Number(downPin.dataset.pin));
+      if(held && !movable(held)){
+        mode = "pan"; moved = true;
+        pan = { x0:view.x, y0:view.y, sx:down.x, sy:down.y,
+                ftPerPx: view.w / plot.getBoundingClientRect().width };
+        return;
+      }
       if(startDrag(downPin, down)){ mode = "drag"; moved = true; moveDrag(e); }
       else mode = null;
       return;
