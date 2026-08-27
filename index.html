@@ -344,14 +344,27 @@ label{display:block;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-t
   letter-spacing:.04em;text-transform:uppercase;color:#fff;text-align:left;
   background:linear-gradient(to top,rgba(58,58,60,.72),rgba(58,58,60,0));
 }
-/* Reading it: fitted to the sheet to begin with, and a tap away from full size with
-   the box itself doing the scrolling. Nothing to pinch — the viewport is locked. */
+/* Reading it: the box is a window and the picture moves behind it. touch-action:none
+   hands every finger to the pinch code rather than to the browser, which is also what
+   stops a drag that runs out of picture from scrolling the sheet — and then the page —
+   out from under it. */
 .receiptview{
-  width:100%;overflow:auto;-webkit-overflow-scrolling:touch;background:var(--line);
+  width:100%;overflow:hidden;position:relative;background:var(--line);
   border:1px solid var(--line);border-radius:var(--radius);
+  touch-action:none;user-select:none;-webkit-user-select:none;overscroll-behavior:contain;
 }
-.receiptview img{display:block;margin:0 auto;max-width:100%;height:auto}
-.receiptview.zoomed img{max-width:none;width:auto}
+.receiptview img{
+  position:absolute;left:0;top:0;transform-origin:0 0;display:block;
+  max-width:none;pointer-events:none;
+}
+/* A PDF brings its own reader, so it is handed the box whole and nothing is wired to it. */
+.receiptview.doc{touch-action:auto;background:var(--card)}
+.receiptview iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:block}
+/* A PDF has no picture to show small, so the thumbnail says what it is instead. */
+.receiptthumb.doc{display:flex;align-items:center;justify-content:center;gap:10px;
+  color:var(--graphite-60);background:var(--cream)}
+.receiptthumb.doc svg{width:26px;height:26px}
+.receiptthumb.doc b{font-size:12.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
 /* A ledger row that has one says so, quietly, where the chevron cannot be mistaken
    for it. */
 .hasreceipt{display:inline-flex;vertical-align:-2px;margin-right:5px;color:var(--graphite-30)}
@@ -429,7 +442,8 @@ td.r,th.r{text-align:right}
 .pshead{flex:none;display:flex;align-items:flex-start;gap:10px;padding:6px 18px 0}
 .pshead .grow{flex:1;min-width:0}
 .pshead h2{font-size:20px}
-.psbody{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 18px 4px}
+.psbody{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 18px 4px;
+        overscroll-behavior:contain}
 /* With no footer under it the body is what has to clear the home indicator. */
 .pspanel.nofoot .psbody{padding-bottom:calc(18px + var(--safe-b))}
 .psfoot{
@@ -776,6 +790,7 @@ const ICON = {
   /* A paperclip rather than a second till roll: the ledger tab already wears one of
      those, and at 13px on a row the two would be the same grey mark. A clip says
      "something is attached to this" and cannot be read as anything else. */
+  doc:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7z"/><path d="M14 3v4h4"/></svg>`,
   clip:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 11.5 12.2 18.3a4.6 4.6 0 0 1-6.5-6.5l7.6-7.6a3 3 0 0 1 4.3 4.3l-7.6 7.6a1.5 1.5 0 0 1-2.1-2.1l6.8-6.8"/></svg>`,
 };
 
@@ -1243,7 +1258,7 @@ window.addEventListener("hashchange", () => {
   if(!location.hash.startsWith("#/plant/") && !draftPlant){
     openPlant = null; editing = null; armDividePlant = false; armPlantOne = false; discardDivide(); }
   if(!location.hash.startsWith("#/collection/")){ photoFor = null; draftCrop = null; }
-  if(!location.hash.startsWith("#/ledger")){ openTxn = null; armDelete = armPlant = false; }
+  if(!location.hash.startsWith("#/ledger")){ openTxn = null; armDelete = false; }
   if(!location.hash.startsWith("#/bloom")) discardBloomDraft();
   if(!location.hash.startsWith("#/map")) closeMapAsk();
   /* A screen you have just arrived at should be at the top of itself. */
@@ -1826,18 +1841,36 @@ async function squeezeReceipt(img){
   }
   return best;
 }
-/* Held on this device and written to the repository, exactly like a photograph — the
-   shelf below the seam does not care which kind of picture it is holding. */
-async function takeReceipt(t, file){
+/* What a receipt turns into, whichever way it arrived. A photograph goes through the
+   squeeze above. A PDF — the kind a vendor emails, picked out of Files — is kept exactly
+   as it came: there is nothing here that could re-draw one, and it does not need it,
+   since a page of text weighs less as a PDF than a photograph of the same page does.
+
+   iOS does not always fill in a type for a file out of Files, so the name is asked when
+   the type says nothing. */
+const looksPdf = f => f && (f.type === PDF_MIME || (!f.type && /\.pdf$/i.test(f.name || "")));
+async function receiptBlob(file){
+  if(!file) return null;
+  if(looksPdf(file)) return file;
+  if(!/^image\//.test(file.type)){ toast("That is not an image or a PDF"); return null; }
   let img;
-  try{ img = await loadPicture(file); }catch(e){ return toast(e.message); }
+  try{ img = await loadPicture(file); }catch(e){ toast(e.message); return null; }
   const blob = await squeezeReceipt(img);
-  if(!blob) return toast("Could not read that image");
+  if(!blob) toast("Could not read that image");
+  return blob;
+}
+const kb = blob => `${Math.round(blob.size / 1024)} KB`;
+
+/* Held on this device and written to the repository, exactly like a photograph — the
+   shelf below the seam does not care which kind of thing it is holding. */
+async function takeReceipt(t, file){
+  const blob = await receiptBlob(file);
+  if(!blob) return;
   try{ await Receipts.write(t, blob); }
   catch(e){ return toast("Could not save the receipt: " + e.message); }
   markDirty(); saveNow();
   render();
-  toast(`Receipt kept · ${Math.round(blob.size / 1024)} KB`);
+  toast(`Receipt kept \u00b7 ${kb(blob)}`);
 }
 
 /* ---------- framing the photo ---------- */
@@ -2442,6 +2475,10 @@ function plantSheet(p){
 
   const planting = armPlantOne && canPlantOne(p);
   return sheet("ps", {
+    /* Full height like the recording sheet: a plant with notes and a division list is
+       twice the length of a bare one, and a panel that changes size as you move between
+       them is the thing that reads as broken. */
+    tall: true,
     title: isDraft(p) ? "New plant" : `Plant <span class="num">${p.id}</span>`,
     sub: isDraft(p) ? "Nothing is added until you save" : esc(v.name || "Untitled cultivar"),
     pill: `<span class="pill ${pillClass(p.status)}" style="margin-top:6px">${p.status}</span>`,
@@ -2918,35 +2955,22 @@ function ledWords(f, t){
 /* Read-only on purpose. A saved plant order is the record of what the plants cost,
    and those plants have positions and histories hanging off it; correcting one
    means deleting it and recording it again, which is deliberate rather than easy. */
-let openTxn = null, armDelete = false, armPlant = false;
-/* Which transaction's receipt is being read, and whether it is being read at full size
-   rather than fitted to the sheet. */
-let receiptFor = null, receiptZoom = false;
-function closeReceipt(){ receiptFor = null; receiptZoom = false; }
-function closeTxnView(){ openTxn = null; armDelete = armPlant = false; editing = null; closeReceipt(); render(); }
+let openTxn = null, armDelete = false;
+/* Which transaction's receipt is being read — a transaction's id, or "draft" for one
+   that has no number yet. How far it is zoomed lives in the box while it is open and
+   dies with it, which is what you want: a receipt opens showing all of itself. */
+let receiptFor = null;
+function closeReceipt(){ receiptFor = null; }
+function closeTxnView(){ openTxn = null; armDelete = false; editing = null; closeReceipt(); render(); }
 
-/* An order is a batch, and a batch goes in the ground together: one weekend, one date,
-   one click. That is the only moment here worth a button of its own — a box that has
-   landed is not a stage, it is a root in your hands, which is where every root starts. */
+/* Which roots an order bought, for the summary of where they have got to. Marking a
+   whole order planted used to live here; planting happens on the map now, where the
+   square is chosen, so the order only reports. */
 const orderPlants = x => (x.allocations || [])
   .filter(a => a.target === "plant")
   .map(a => DB.plants.find(p => p.id === a.targetId))
   .filter(Boolean);
 
-/* Roots already in the ground are left alone — this only ever moves things forward. */
-function markOrder(x, date){
-  let n = 0;
-  for(const p of orderPlants(x)) if(NOT_YET_IN.includes(p.status)){
-    p.status = PLANTED;
-    p.plantedDate = date || null;
-    n++;
-  }
-  armPlant = false;
-  if(!n){ toast("Nothing left to mark planted"); return 0; }
-  markDirty(); render();
-  saveNow(`${n} root${n === 1 ? "" : "s"} marked planted`);
-  return n;
-}
 function stageSummary(ps){
   const c = {};
   for(const p of ps) c[p.status] = (c[p.status] || 0) + 1;
@@ -3017,7 +3041,7 @@ function paintLedger(){
 }
 function wireLedRows(root){
   root.querySelectorAll("[data-tx]").forEach(el => el.onclick = () => {
-    openTxn = Number(el.dataset.tx); armDelete = armPlant = false; render();
+    openTxn = Number(el.dataset.tx); armDelete = false; render();
   });
 }
 
@@ -3099,16 +3123,6 @@ function txnView(x){
   });
   const n = rows.length, roots = `${n} plant${n === 1 ? "" : "s"}`;
   const ps = orderPlants(x);
-  const canPlant = ps.filter(p => NOT_YET_IN.includes(p.status)).length;
-  const orderActs = armPlant
-    ? `<div class="fieldrow pair" style="margin:14px 0 6px">
-         ${field("Planted on", `<input type="date" required id="tvPlantDate" value="${today()}">`)}
-         <div><label>&nbsp;</label><button class="btn primary wide" id="tvPlantGo">Mark ${canPlant} Planted</button></div>
-       </div>
-       <button class="btn wide" id="tvPlantCancel">Cancel</button>`
-    : canPlant
-      ? `<button class="btn wide" id="tvPlant" style="margin:12px 0 2px">Mark ${canPlant} Planted</button>`
-      : "";
 
   const foot = armDelete
     ? `<div class="confirming">
@@ -3158,19 +3172,15 @@ function txnView(x){
     <div class="between" style="margin-top:24px"><h3 style="margin:0">Receipt</h3>
       <span class="small muted">${rc ? "kept with this entry" : "none yet"}</span></div>
     ${rc
-      ? `<button class="receiptthumb" id="tvReceipt" style="margin-top:10px" aria-label="View this receipt">
-           <img src="${esc(rc)}" alt="Receipt from ${esc(x.counterparty || "")}">
-           <span class="more">Tap to view</span>
-         </button>`
+      ? receiptThumb("tvReceipt", rc, isPdfRef(x.receipt), "Tap to view", x.counterparty)
       : `<button class="btn wide" id="tvAddReceipt" style="margin-top:10px">Add a Receipt</button>
-         <p class="small muted" style="margin:8px 0 0">Photograph it and it is squeezed on the way in —
-           small enough to keep for good, and still large enough to read.</p>`}
-    <input type="file" accept="image/*" id="tvReceiptFile" hidden>`;
+         <p class="small muted" style="margin:8px 0 0">A photograph is squeezed on the way in — small
+           enough to keep for good, and still large enough to read. A PDF out of Files is kept whole.</p>`}
+    ${receiptPicker("tvReceiptFile")}`;
 
   const paid = n ? `
     <div class="between" style="margin-top:24px"><h3 style="margin:0">What it paid for</h3>
       <span class="small muted">${stageSummary(ps)}</span></div>
-    ${orderActs}
     <div class="card flush" style="margin-top:10px">${rows.map(r => li({
       go: r.alive,
       cls: r.alive ? "" : "static",
@@ -3202,33 +3212,149 @@ function txnView(x){
    just been removed falls back to the sheet it came from rather than to an empty box. */
 function receiptShowing(open){
   if(draftTxn) return receiptFor === "draft" && draftTxn.receiptUrl
-    ? { src: draftTxn.receiptUrl, who: draftTxn.counterparty, when: draftTxn.date, draft: true }
+    ? { src: draftTxn.receiptUrl, who: draftTxn.counterparty, when: draftTxn.date,
+        pdf: isPdfBlob(draftTxn.receipt), draft: true }
     : null;
   return open && receiptFor === open.id && Receipts.url(open)
-    ? { src: Receipts.url(open), who: open.counterparty, when: open.date, tx: open }
+    ? { src: Receipts.url(open), who: open.counterparty, when: open.date,
+        pdf: isPdfRef(open.receipt), tx: open }
     : null;
 }
-/* Fitted to the sheet to begin with, because the first question is always which receipt
-   this is. A tap gives it its full size and lets the box do the scrolling: the viewport
-   is locked against pinching, so the picture has to carry its own way in. */
+/* Fitted to the box to begin with, because the first question is always which receipt
+   this is, and then pinched and dragged like any other picture on a phone. The page
+   viewport is locked against pinching — it has to be, or the whole app would zoom — so
+   the box does it itself, over the picture alone.
+
+   A PDF brings its own reader and is handed the box whole. */
+const rcBoxH = () => Math.max(260, Math.round(window.innerHeight * 0.54));
 function receiptPanel(r){
-  const src = r.src;
+  const box = `style="height:${rcBoxH()}px"`;
   return sheet("rc", {
     title: "Receipt",
     sub: `${esc(r.who || "")}${r.when ? " · " + fmtDate(r.when) : ""}`,
-    body: `<div class="receiptview${receiptZoom ? " zoomed" : ""}" id="rcView"
-             style="max-height:${Math.max(240, Math.round(window.innerHeight * 0.52))}px">
-        <img id="rcImg" src="${esc(src || "")}" alt="Receipt from ${esc(r.who || "")}" draggable="false">
-      </div>
-      <p class="small muted" style="margin:12px 0 0;text-align:center">Tap it for full size, then drag
-        to read the small print. Tap again to fit it back.</p>
-      <input type="file" accept="image/*" id="rcFile" hidden>`,
+    body: (r.pdf
+      ? `<div class="receiptview doc" id="rcView" ${box}>
+           <iframe id="rcDoc" src="${esc(r.src || "")}" title="Receipt from ${esc(r.who || "")}"></iframe>
+         </div>
+         <p class="small muted" style="margin:12px 0 0;text-align:center">A PDF, kept whole.</p>`
+      : `<div class="receiptview" id="rcView" ${box}>
+           <img id="rcImg" src="${esc(r.src || "")}" alt="Receipt from ${esc(r.who || "")}" draggable="false">
+         </div>
+         <p class="small muted" style="margin:12px 0 0;text-align:center">Pinch to zoom, drag to move.
+           Double-tap to fit it back.</p>`) +
+      receiptPicker("rcFile"),
     foot: `<button class="btn danger" id="rcRemove">Remove</button>
       <div class="acts">
         <button class="btn" id="rcReplace">Replace</button>
         <button class="btn primary" id="rcDone">Done</button>
       </div>`
   });
+}
+
+/* The picture is moved and scaled by a transform rather than by scrolling a box, which
+   is what lets a pinch work at all and what keeps a drag that runs out of picture from
+   handing the rest of itself to the sheet — and then to the page — behind it.
+
+   Held as three numbers: how far in, and how far along either way, in box pixels. The
+   picture is never allowed smaller than fits, and never dragged so far that the box
+   shows anything but picture. */
+const RC_MAX_ZOOM = 10;
+function wireReceiptZoom(view, img){
+  let nw = 0, nh = 0, fit = 1, s = 1, x = 0, y = 0;
+  const box = () => ({ W: view.clientWidth, H: view.clientHeight });
+
+  function clamp(){
+    const b = box(), w = nw * s, h = nh * s;
+    x = w <= b.W ? (b.W - w) / 2 : Math.min(0, Math.max(b.W - w, x));
+    y = h <= b.H ? (b.H - h) / 2 : Math.min(0, Math.max(b.H - h, y));
+  }
+  const paint = () => { clamp(); img.style.transform = `translate(${x}px,${y}px) scale(${s})`; };
+  /* Fit it, and remember what fitting means — that is the floor every pinch stops at,
+     so pinching out always lands back on the whole receipt rather than somewhere near it. */
+  function fitIt(){
+    nw = img.naturalWidth; nh = img.naturalHeight;
+    const b = box();
+    if(!nw || !nh || !b.W || !b.H) return;
+    fit = Math.min(b.W / nw, b.H / nh);
+    s = fit; x = 0; y = 0;
+    paint();
+  }
+  if(img.complete && img.naturalWidth) fitIt(); else img.onload = fitIt;
+
+  /* Zooming about a point leaves whatever is under that point where it is — the whole
+     reason a pinch feels like moving the paper rather than turning a dial. */
+  const zoomAt = (ns, px, py, from) => {
+    const k = ns / from.s;
+    x = px - (from.px - from.x) * k;
+    y = py - (from.py - from.y) * k;
+    s = ns;
+    paint();
+  };
+  const bounded = v => Math.max(fit, Math.min(fit * RC_MAX_ZOOM, v));
+
+  const pts = new Map();
+  let base = null, moved = 0, lastTap = 0;
+  const rel = e => {
+    const b = view.getBoundingClientRect();
+    return { x: e.clientX - b.left, y: e.clientY - b.top };
+  };
+  const spread = () => {
+    const [a, b] = [...pts.values()];
+    return { gap: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+  };
+  const rebase = () => {
+    const p = [...pts.values()];
+    base = { s, x, y, one: { ...p[0] } };
+    if(p.length >= 2){ const t = spread(); base.gap = t.gap; base.px = t.mx; base.py = t.my; }
+  };
+
+  view.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    pts.set(e.pointerId, rel(e));
+    moved = 0;
+    rebase();
+    /* Capture is a convenience — it keeps a finger that wanders off the box still
+       talking to it. It is not what makes the gesture work, so it must not be able to
+       throw the gesture away: taking it comes last, and a refusal is shrugged off. */
+    try{ view.setPointerCapture(e.pointerId); }catch(err){ /* no capture, still a gesture */ }
+  });
+  view.addEventListener("pointermove", e => {
+    if(!pts.has(e.pointerId) || !base) return;
+    e.preventDefault();
+    const was = pts.get(e.pointerId);
+    const now = rel(e);
+    pts.set(e.pointerId, now);
+    moved += Math.hypot(now.x - was.x, now.y - was.y);
+    if(pts.size >= 2 && base.gap > 0){
+      const t = spread();
+      zoomAt(bounded(base.s * (t.gap / base.gap)), t.mx, t.my, base);
+    }else{
+      x = base.x + (now.x - base.one.x);
+      y = base.y + (now.y - base.one.y);
+      paint();
+    }
+  });
+  const lift = e => {
+    if(!pts.has(e.pointerId)) return;
+    pts.delete(e.pointerId);
+    /* Two taps in a row that went nowhere: back to the whole receipt. A drag that
+       happened to end quickly is not a tap, which is what `moved` is here for. */
+    if(!pts.size){
+      base = null;
+      if(moved < 8){
+        const t = Date.now();
+        if(t - lastTap < 320){ fitIt(); lastTap = 0; } else lastTap = t;
+      }
+    }else rebase();
+  };
+  view.addEventListener("pointerup", lift);
+  view.addEventListener("pointercancel", lift);
+  /* A trackpad or a wheel, for whoever opens this on a desk. */
+  view.addEventListener("wheel", e => {
+    e.preventDefault();
+    const p = rel(e);
+    zoomAt(bounded(s * (e.deltaY < 0 ? 1.12 : 1 / 1.12)), p.x, p.y, { s, x, y, px: p.x, py: p.y });
+  }, { passive:false });
 }
 function wireReceiptPanel(r){
   const view = $("#rcView"), img = $("#rcImg"), pick = $("#rcFile");
@@ -3256,12 +3382,8 @@ function wireReceiptPanel(r){
     toast("Receipt removed");
   };
   /* Painted onto the element rather than re-rendered: a render would replace the
-     picture under the finger and throw the scroll position away with it. */
-  if(img && view) img.onclick = () => {
-    receiptZoom = !receiptZoom;
-    view.classList.toggle("zoomed", receiptZoom);
-    if(receiptZoom){ view.scrollTop = 0; view.scrollLeft = 0; }
-  };
+     picture out from under the fingers moving it. */
+  if(view && img) wireReceiptZoom(view, img);
 }
 
 /* ---------- recording one ---------- */
@@ -3323,7 +3445,6 @@ function txnSheet(){
 
   return sheet("tx", {
     title: "Record a transaction",
-    sub: "Nothing is added until you save",
     stacked: t.kind === "order",
     /* Held at full height whichever kind is showing, so the three tabs are three
        views of one panel rather than three panels of different sizes. */
@@ -3351,7 +3472,7 @@ function wireTxnView(app, x){
   };
   const add = $("#tvAddReceipt"); if(add) add.onclick = () => pick && pick.click();
   const thumb = $("#tvReceipt");
-  if(thumb) thumb.onclick = () => { receiptFor = x.id; receiptZoom = false; render(); };
+  if(thumb) thumb.onclick = () => { receiptFor = x.id; render(); };
   /* Over the order rather than away from it. The transaction stays open underneath and
      the hash never moves, so closing the plant comes straight back to the order it was
      bought on — which is the thing you were reading. */
@@ -3366,16 +3487,9 @@ function wireTxnView(app, x){
     if(isEditing("t:" + x.id)) $("#tvSave").onclick = commitEdit;
     else $("#tvEdit").onclick = () => beginEdit("t:" + x.id);
 
-    if(armPlant){
-      $("#tvPlantCancel").onclick = () => { armPlant = false; render(); };
-      $("#tvPlantGo").onclick = () => markOrder(x, $("#tvPlantDate").value);
-    }else{
-      const pl = $("#tvPlant");
-      if(pl) pl.onclick = () => { armPlant = true; editing = null; render(); };
-    }
     /* Leave edit mode to ask the question: an editable form behind "delete this?"
        reads as though the edit is what is being confirmed. */
-    $("#tvDel").onclick = () => { armDelete = true; armPlant = false; editing = null; render(); };
+    $("#tvDel").onclick = () => { armDelete = true; editing = null; render(); };
     return;
   }
   const remove = async alsoPlants => {
@@ -3424,15 +3538,17 @@ function discardTxnDraft(){
 /* Into the draft rather than into a file: there is nothing to name it after yet. What
    is held is already squeezed, so what you are looking at is what will be written. */
 async function draftTakeReceipt(file){
-  let img;
-  try{ img = await loadPicture(file); }catch(e){ return toast(e.message); }
-  const blob = await squeezeReceipt(img);
-  if(!blob) return toast("Could not read that image");
+  const blob = await receiptBlob(file);
+  if(!blob) return;
   draftDropReceipt();
   draftTxn.receipt = blob; draftTxn.receiptUrl = URL.createObjectURL(blob);
   render();
-  toast(`Receipt ready \u00b7 ${Math.round(blob.size / 1024)} KB`);
+  toast(`Receipt ready \u00b7 ${kb(blob)}`);
 }
+/* Whether what is held is a PDF rather than a picture. A saved transaction carries a
+   path and is asked by its extension; a draft carries the blob itself and is asked by
+   its type. */
+const isPdfBlob = b => !!b && b.type === PDF_MIME;
 function draftDropReceipt(){
   if(draftTxn && draftTxn.receiptUrl) URL.revokeObjectURL(draftTxn.receiptUrl);
   if(draftTxn){ draftTxn.receipt = null; draftTxn.receiptUrl = null; }
@@ -3445,19 +3561,29 @@ async function fileReceipt(tx, blob){
   catch(e){ return toast("Recorded, but the receipt did not save: " + e.message); }
   markDirty(); saveNow(); render();
 }
+/* The one strip both sheets show, and the one picker both of them open. A PDF has no
+   picture to shrink into a strip, so it says what it is instead. */
+function receiptThumb(id, src, pdf, words, who){
+  return pdf
+    ? `<button class="receiptthumb doc" id="${id}" style="margin-top:10px" aria-label="View this receipt">
+         ${ICON.doc}<b>PDF \u00b7 ${esc(words)}</b>
+       </button>`
+    : `<button class="receiptthumb" id="${id}" style="margin-top:10px" aria-label="View this receipt">
+         <img src="${esc(src)}" alt="Receipt from ${esc(who || "")}">
+         <span class="more">${esc(words)}</span>
+       </button>`;
+}
+const receiptPicker = id => `<input type="file" accept="image/*,application/pdf,.pdf" id="${id}" hidden>`;
+
 function draftReceiptRow(){
   const t = draftTxn;
   return `
     <div class="between" style="margin:22px 0 0"><h3 style="margin:0">Receipt</h3>
       <span class="small muted">optional</span></div>
     ${t.receiptUrl
-      ? `<button class="receiptthumb" id="t-rcThumb" style="margin-top:10px" aria-label="View this receipt">
-           <img src="${esc(t.receiptUrl)}" alt="">
-           <span class="more">Tap to view</span>
-         </button>
-         <button class="btn wide" id="t-rcDrop" style="margin-top:8px">Remove the Receipt</button>`
-      : `<button class="btn wide" id="t-rcAdd" style="margin-top:10px">Photograph the Receipt</button>`}
-    <input type="file" accept="image/*" id="t-rcFile" hidden>`;
+      ? receiptThumb("t-rcThumb", t.receiptUrl, isPdfBlob(t.receipt), "Tap to view", t.counterparty)
+      : `<button class="btn wide" id="t-rcAdd" style="margin-top:10px">Add a Receipt</button>`}
+    ${receiptPicker("t-rcFile")}`;
 }
 
 const hasContent = l => !!(String(l.name).trim() || String(l.price).trim());
@@ -3506,6 +3632,28 @@ function paintSimple(){
 }
 const paintTxn = () => { paintOrder(); paintSimple(); };
 
+/* Changing kind changes what is inside the sheet, not which sheet it is — so only the
+   inside is replaced. A full render tears the panel out of the document and builds a new
+   one, and a new panel replays the rise-and-fade it opens with: the sheet flinched every
+   time the tabs were touched. Swapping the body and the footer in place leaves the panel
+   alone, and the panel is what the eye is holding on to. Falls back to a render if the
+   sheet somehow is not on screen. */
+function repaintTxnSheet(){
+  const panel = document.querySelector("#txBack .pspanel");
+  const body = panel && panel.querySelector(".psbody");
+  const foot = panel && panel.querySelector(".psfoot");
+  if(!panel || !body || !foot) return render();
+
+  const built = document.createElement("div");
+  built.innerHTML = txnSheet();
+  const from = built.querySelector(".pspanel");
+  body.innerHTML = from.querySelector(".psbody").innerHTML;
+  foot.innerHTML = from.querySelector(".psfoot").innerHTML;
+  foot.className = from.querySelector(".psfoot").className;
+  body.scrollTop = 0;
+  wireTxnSheet(document.getElementById("app"));
+}
+
 function wireTxnSheet(app){
   const t = draftTxn;
   const shut = () => { discardTxnDraft(); render(); };
@@ -3517,17 +3665,18 @@ function wireTxnSheet(app){
     if(b.dataset.kind === t.kind) return;
     draftTxn = blankTxn(b.dataset.kind, { date: t.date, counterparty: t.counterparty,
                                           receipt: t.receipt, receiptUrl: t.receiptUrl });
-    render();
+    repaintTxnSheet();
   });
 
   wirePicker($("#t-party"), "party", v => { t.counterparty = v; paintTxn(); });
   const date = $("#t-date");   if(date) date.onchange = e => { t.date = e.target.value; };
 
   const rcFile = $("#t-rcFile");
-  const rcAdd = $("#t-rcAdd"), rcThumb = $("#t-rcThumb"), rcDrop = $("#t-rcDrop");
+  const rcAdd = $("#t-rcAdd"), rcThumb = $("#t-rcThumb");
   if(rcAdd) rcAdd.onclick = () => rcFile.click();
-  if(rcThumb) rcThumb.onclick = () => { receiptFor = "draft"; receiptZoom = false; render(); };
-  if(rcDrop) rcDrop.onclick = () => { draftDropReceipt(); render(); };
+  /* No Remove here: viewing it is one tap, and Remove lives in the viewer with the
+     picture it is about. Two removes for one receipt was one too many. */
+  if(rcThumb) rcThumb.onclick = () => { receiptFor = "draft"; render(); };
   if(rcFile) rcFile.onchange = e => {
     const f = e.target.files && e.target.files[0];
     if(f) draftTakeReceipt(f);
@@ -4502,7 +4651,7 @@ document.addEventListener("keydown", e => {
   }
   if(draftTxn){ discardTxnDraft(); return render(); }
   if(openTxn !== null){
-    if(armDelete || armPlant){ armDelete = armPlant = false; return render(); }
+    if(armDelete){ armDelete = false; return render(); }
     return closeTxnView();
   }
 });

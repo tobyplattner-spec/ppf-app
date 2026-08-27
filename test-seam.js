@@ -210,6 +210,43 @@ ok(!/location\.hash/.test(gp.slice(0, 300)), "a plant on an order does not navig
 ok(/openPlant = Number/.test(gp.slice(0, 300)), "it opens the plant sheet over the order instead");
 ok(/const plantSheetFloats/.test(app), "and one answer decides where closing it leaves you");
 
+console.log("\n-- H: a receipt is a photograph or a PDF, and the seam knows which --");
+reset(); shelf.clear();
+seed("farm-data.json", {...FARM, transactions:[{...TX}]});
+seed("sandbox-data.json", {...FARM});
+await Store.connectRepo({owner:"o",repo:"r",token:"t",branch:"main"});
+const pdb = await Store.load();
+const ptx = pdb.transactions[0];
+await S.Receipts.write(ptx, jpeg());
+ok(ptx.receipt === "photos/receipts/7.jpg", "a photographed receipt is filed as .jpg");
+await S.Receipts.write(ptx, new Blob([Buffer.from("%PDF-1.4 pretend")], {type:"application/pdf"}));
+ok(ptx.receipt === "photos/receipts/7.pdf", "a PDF is filed as .pdf, not squeezed into a .jpg name");
+ok(repo.has("photos/receipts/7.pdf"), "and the file is there under that name");
+ok(!repo.has("photos/receipts/7.jpg"), "the photograph it replaced is taken away, not orphaned");
+ok(S.isPdfRef(ptx.receipt) === true, "isPdfRef reads the path");
+ok(S.isPdfRef("photos/receipts/7.jpg") === false, "and does not cry PDF over a photograph");
+ok(S.isPdfRef("data:application/pdf;base64,AAAA") === true, "including one riding inside the records");
+await S.Receipts.remove(ptx);
+ok(!repo.has("photos/receipts/7.pdf") && ptx.receipt === null, "and removing takes the PDF with it");
+
+console.log("\n-- app-side: the rest of this batch (source checks) --");
+ok(!/Nothing is added until you save[\s\S]{0,80}Record a transaction|Record a transaction[\s\S]{0,120}Nothing is added until you save/.test(app),
+   "the recording sheet has no subtitle");
+ok(!/id="t-rcDrop"/.test(app), "and no Remove button of its own — the viewer has the only one");
+ok(!/markOrder|tvPlantGo|Mark \$\{canPlant\} Planted/.test(app), "marking a whole order planted is gone");
+ok(/accept="image\/\*,application\/pdf,\.pdf"/.test(app), "the picker takes a PDF as well as a picture");
+ok(/repaintTxnSheet/.test(app), "changing kind repaints the sheet");
+const rk = app.slice(app.indexOf("function repaintTxnSheet"), app.indexOf("function wireTxnSheet"));
+ok(!/\brender\(\);/.test(rk.replace(/return render\(\);/g, "")),
+   "in place, without the full render that made it flinch");
+const rcCss = app.slice(app.indexOf(".receiptview{"), app.indexOf(".receiptthumb.doc"));
+ok(/touch-action:none/.test(rcCss), "every finger on the receipt box goes to the pinch code");
+ok(/overflow:hidden/.test(rcCss), "the box does not scroll, so a drag cannot chain out of it");
+ok(/overscroll-behavior:contain/.test(app.slice(app.indexOf(".psbody{"), app.indexOf(".psbody{") + 200)),
+   "and no sheet's own scrolling reaches the page behind it");
+ok(/function wireReceiptZoom/.test(app), "the viewer pinches and drags");
+ok((app.match(/tall: true/g) || []).length === 2, "the recording sheet and the plant sheet are both full height");
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
 })().catch(e => { console.error("HARNESS ERROR:", e); process.exit(2); });

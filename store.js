@@ -29,7 +29,7 @@
    used to be a third and a fourth — ?v= on the script tag in each face — which had to
    be kept in step by hand and were not. The worker asks the network first for anything
    on this origin, so the query string was only ever belt over braces. */
-const BUILD = "8";
+const BUILD = "9";
 
 /* ---------- this browser's own shelf ---------- */
 const IDB = {
@@ -82,12 +82,25 @@ const receiptDir = () => pictureDir() + "/" + RECEIPT_SUB;
 const bookKey   = base => BOOK === "farm" ? base : base + ":" + BOOK;
 const PHOTO_MIME = "image/jpeg";   /* "image/webp" here is ~30% smaller at the same quality */
 const PHOTO_EXT = ".jpg";
+/* A receipt does not always arrive as a photograph. One a vendor emailed is a PDF, and
+   there is nothing here to re-draw a PDF with — no library, and none worth carrying for
+   this — so it is kept exactly as it came. It is already small: a page of text weighs
+   less as a PDF than a photograph of the same page does.
+
+   The file is named for what it actually is, so it opens by its own name out of the
+   repository, and so a receipt replaced by one of the other kind can be told from the
+   one it replaced. */
+const PDF_MIME = "application/pdf";
+const PDF_EXT = ".pdf";
+const extOf = blob => (blob && blob.type === PDF_MIME) ? PDF_EXT : PHOTO_EXT;
+const isPdfRef = p => typeof p === "string" &&
+  (p.toLowerCase().endsWith(PDF_EXT) || p.startsWith("data:" + PDF_MIME));
 
 /* Named for the record it belongs to, in the directory its kind belongs in. Both are
    the shelves' own idea of where a picture goes, so there is one place to change it. */
-const photoFile  = o => o.id + PHOTO_EXT;
+const photoFile  = (o, ext = PHOTO_EXT) => o.id + ext;
 const photoRef   = v => photoDir() + "/" + photoFile(v);
-const receiptRef = t => receiptDir() + "/" + photoFile(t);
+const receiptRef = (t, ext = PHOTO_EXT) => receiptDir() + "/" + photoFile(t, ext);
 const isInline = p => typeof p === "string" && p.startsWith("data:");
 const hasPhotoRef = p => typeof p === "string" && p.length > 0;
 
@@ -268,7 +281,7 @@ const Git = {
    cultivar called 3 and transaction 3 can never be handed each other's picture. */
 function shelf(spec){
   const S = {
-    ref: spec.ref,                 /* (o) => where this record's picture belongs */
+    ref: spec.ref,                 /* (o, ext) => where this record's picture belongs */
     field: spec.field,             /* what the record carries the path in */
     records: spec.records,         /* (db) => the records that can carry one */
     noun: spec.noun,               /* "Photograph" | "Receipt", for the commit message */
@@ -368,7 +381,10 @@ function shelf(spec){
        somewhere to put one, and inside the record itself where there is not. */
     async write(o, blob){
       if(S.git){
-        const path = S.ref(o);
+        /* The name follows what is actually being written, so a photograph replaced by
+           a PDF lands as .pdf — and the old .jpg is taken away below rather than left
+           behind under a name nothing points at any more. */
+        const path = S.ref(o, extOf(blob));
         const was = o[S.field];
         const bytes = new Uint8Array(await blob.arrayBuffer());
         const b64 = bytesToB64(bytes);
@@ -871,11 +887,13 @@ if(typeof window !== "undefined"){
      and receiptDir() are the open book's. */
   window.DATA_FILE = DATA_FILE; window.PHOTO_DIR = PHOTO_DIR; window.PHOTO_MIME = PHOTO_MIME; window.PHOTO_EXT = PHOTO_EXT;
   window.BOOKS = BOOKS; window.dataFile = dataFile;
+  window.PDF_MIME = PDF_MIME; window.PDF_EXT = PDF_EXT; window.isPdfRef = isPdfRef;
   window.pictureDir = pictureDir; window.photoDir = photoDir; window.receiptDir = receiptDir;
 }
 if(typeof module !== "undefined" && module.exports){
   module.exports = { IDB, Git, Photos, Receipts, Pictures, Store, Outbox, GitError,
-    DATA_FILE, PHOTO_DIR, PHOTO_EXT, PHOTO_MIME, CULTIVAR_SUB, RECEIPT_SUB,
+    DATA_FILE, PHOTO_DIR, PHOTO_EXT, PHOTO_MIME, PDF_MIME, PDF_EXT, isPdfRef, extOf,
+    CULTIVAR_SUB, RECEIPT_SUB,
     BOOKS, dataFile, pictureDir, photoDir, receiptDir,
     photoFile, photoRef, receiptRef, isInline, hasPhotoRef, dataUrlToBlob, blobToDataUrl, b64ToBytes, bytesToB64, textToB64, b64ToText };
 }
