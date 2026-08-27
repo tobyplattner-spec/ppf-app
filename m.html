@@ -518,6 +518,9 @@ body.mapview main{
   font-size:13.5px;font-weight:700;white-space:nowrap;
   box-shadow:0 6px 18px rgba(138,61,76,.4);
 }
+/* Carrying a peony that is not in the ground yet: it will land as a plan, and a plan is
+   charcoal, so the pill says so on the way rather than changing colour under you. */
+.ghost.planned{background:var(--graphite);box-shadow:0 6px 18px rgba(58,58,60,.4)}
 .ghost.nowhere{background:var(--graphite-60);box-shadow:0 6px 18px rgba(58,58,60,.34)}
 
 /* ---------- order lines ---------- */
@@ -3366,6 +3369,11 @@ function mapped(){ return DB.plants.filter(p => live(p) && p.x !== null && p.y !
    whole of the question. Crowded used to be the charcoal one; it is a ring now, so it
    can flag a plan and a planted peony alike rather than being drowned out by one. */
 const pinFill = p => p.status === PLANNED ? "#3A3A3C" : "#C25A6D";
+/* The colour a peony is about to become, for the thing being carried towards a square.
+   One not in the ground yet lands as a plan whichever of the two it starts as: Acquired
+   becomes Planned on the way down, and Planned stays Planned. So what is carried is
+   drawn as what it will be, rather than as what everything else happens to be. */
+const dropFill = p => NOT_YET_IN.includes(p.status) ? "#3A3A3C" : "#C25A6D";
 function unmapped(){ return DB.plants.filter(p => live(p) && (p.x === null || p.y === null)); }
 
 /* The map is a grid of 3 ft cells and a cell holds at most one peony, which is
@@ -3992,10 +4000,12 @@ function wireMap(){
   const ghostCell = svg.querySelector("#ghostCell");
   let carry = null;
 
-  /* The square it would land in, shown on the map itself rather than under the hand. */
-  function paintCell(t){
+  /* The square it would land in, shown on the map itself rather than under the hand,
+     and in the colour the peony will be once it is in it. */
+  function paintCell(t, fill){
     if(!ghostCell) return;
     if(!t){ ghostCell.setAttribute("opacity", "0"); return; }
+    if(fill){ ghostCell.setAttribute("fill", fill); ghostCell.setAttribute("stroke", fill); }
     ghostCell.setAttribute("x", t.x - CELL()/2);
     ghostCell.setAttribute("y", t.y - CELL()/2);
     ghostCell.setAttribute("width", CELL());
@@ -4010,13 +4020,13 @@ function wireMap(){
     const c = toFt(at);
     carry.at = snapFree(c.x, c.y, carry.p.id);
     carry.ghost.classList.toggle("nowhere", !carry.at);
-    paintCell(carry.at);
+    paintCell(carry.at, dropFill(carry.p));
   }
   function startCarry(chip, e){
     const p = byId.get(Number(chip.dataset.place));
     if(!p) return;
     const ghost = document.createElement("div");
-    ghost.className = "ghost";
+    ghost.className = "ghost" + (NOT_YET_IN.includes(p.status) ? " planned" : "");
     ghost.textContent = cultivar(p.cultivarId).name || "Plant " + p.id;
     plot.appendChild(ghost);
     chip.classList.add("carrying");
