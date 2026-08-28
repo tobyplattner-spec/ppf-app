@@ -274,7 +274,7 @@ ok(!/\.receiptview\.doc\{/.test(app), "and the box that let its frame take the t
 ok(/\.receiptview iframe\{[^}]*transform-origin/.test(app), "the frame is pushed about by the same transform");
 ok(/\.receiptview iframe\{[^}]*pointer-events:none/.test(app), "and takes no touches of its own");
 ok(/\.receiptview \.grab\{/.test(app), "something of ours is laid over it for the fingers to land on");
-ok(/const RC_DOC/.test(app), "the frame is given a page-sized canvas, since it has no size to offer");
+ok(/const RC_DOC_H/.test(app), "the frame is given a canvas, since it has no size to offer");
 const rz = app.slice(app.indexOf("function wireReceiptZoom"), app.indexOf("/* ---------- recording one"));
 ok(/fixed \? fixed\.w : img\.naturalWidth/.test(rz), "one zoom serves a picture and a frame alike");
 ok(/addEventListener\("touchmove", e => e\.preventDefault\(\)/.test(rz),
@@ -283,8 +283,23 @@ ok(/addEventListener\("touchmove", e => e\.preventDefault\(\)/.test(rz),
 /* Nothing in front of the user explains how any of it works. */
 ok(!/squeezed on the way in|kept for good|A PDF, kept whole|A PDF out of Files/.test(app),
    "no blurb about squeezing or about what is done with a PDF");
-ok((app.match(/Pinch to zoom, drag to move/g) || []).length === 1,
-   "one hint, and it serves both kinds");
+ok(!/Pinch to zoom|Double-tap to fit/.test(app),
+   "and no instructions on how to pinch a picture either");
+
+/* A PDF shows its own first page, on the strip and in the viewer, cut to the shape the
+   file says its page is — so zooming out lands on the page rather than on a letterbox. */
+ok(/function pdfPageAR/.test(app), "the page's shape is read out of the PDF's own MediaBox");
+ok(/const LETTER_AR/.test(app), "with US Letter to fall back on, which a receipt usually is");
+ok(/\.receiptthumb \.preview\{/.test(app), "the strip draws the PDF rather than naming it");
+ok(!/ICON\.doc|  doc:`/.test(app), "and the document mark it used to show is gone");
+ok(/function fitDocPreviews/.test(app), "each preview is scaled to the strip showing it");
+ok(/fitDocPreviews\(\)/.test(app.slice(app.indexOf("function repaintTxnSheet"), app.indexOf("function wireTxnSheet"))),
+   "including on the one path that repaints without a render");
+ok(/const docSize = ar =>/.test(app), "and the frame is cut to the page's shape");
+const rz2 = app.slice(app.indexOf("function wireReceiptZoom"), app.indexOf("/* ---------- recording one"));
+ok(/img\.style\.width = fixed\.w/.test(rz2),
+   "the frame is made that size too, or the fitting and the element would disagree");
+ok(/receiptAR/.test(app), "and the shape is kept on the record rather than re-read every time");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
