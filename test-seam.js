@@ -307,11 +307,21 @@ ok(/toWidth \? \(b\.W \/ nw\)/.test(fi), "a document is fitted to the width and 
 ok(/if\(fixed\)\{ img\.style\.width/.test(fi),
    "and the frame is made that size inside the fitting, so a late answer moves both");
 ok(/function readShapeLate/.test(app),
-   "a receipt filed before any of this asks the file itself, once, and writes it down");
+   "a receipt asks the file itself and writes the answer down");
+/* The Adelman order keeps its page tree past 300kB, so reading the front of a PDF found
+   one page where there were two and the second was unreachable. */
+ok(/async function pdfBytes/.test(app), "a PDF is read whole, not from the front of it");
+ok(!/blob\.slice\(0, 300000\)/.test(app), "the 300kB window that missed a page tree is gone");
+const rsl = app.slice(app.indexOf("async function readShapeLate"), app.indexOf("async function readShapeLate") + 800);
+ok(!/if\(!r\.doc\) readShapeLate/.test(app),
+   "and it is asked every time, not only when nothing is written down");
+ok(/had\.w === shape\.w && had\.h === shape\.h && had\.n === shape\.n/.test(rsl),
+   "so a shape read by a worse reader is corrected, and one that agrees writes nothing");
+ok(!/kept with this entry/.test(app), "the strip no longer says it is kept with the entry");
 const rz2 = app.slice(app.indexOf("function wireReceiptZoom"), app.indexOf("/* ---------- recording one"));
 ok(/img\.style\.width = fixed\.w/.test(rz2),
    "the frame is made that size too, or the fitting and the element would disagree");
-ok(/receiptDoc/.test(app), "the shape is kept on the record rather than re-read every time");
+ok(/receiptDoc/.test(app), "the shape is kept on the record, so a strip has it without asking");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
