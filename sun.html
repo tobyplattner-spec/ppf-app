@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
+<meta name="theme-color" content="#3A3A3C">
+<meta name="format-detection" content="telephone=no">
+<title>Hours of sun — a proof of concept</title>
+<link rel="icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baskervville:ital,wght@0,400..700;1,400..700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================================
+   Hours of sun on one spot — the survey.
+
+   A proof of concept, and separate from the farm app on purpose: it borrows the
+   palette and the type so it does not look like a stranger, and nothing else. No
+   service worker of its own, no manifest, nothing near farm-data.json. The one
+   thing it shares is sun.js, which holds all the arithmetic and none of the DOM.
+
+   Four steps, one screen each: where you are, what the compass is lying by, the
+   sweep round the skyline, and the answer.
+   ========================================================================== */
+:root{
+  --rose:#C25A6D; --rose-dark:#8A3D4C; --rose-tint:#F7E7EA;
+  --graphite:#3A3A3C; --graphite-60:#8A8A8C; --graphite-30:#C9C9CB;
+  --cream:#FDF9F7; --card:#FFFFFF; --line:#E8E2DF;
+  --sun:#E0A32E; --sky:#B8CBD9; --leaf:#A9B49A;
+  --radius:10px; --pad:14px;
+  --safe-b:min(env(safe-area-inset-bottom,0px),34px);
+  --safe-t:env(safe-area-inset-top,0px);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  background:var(--cream); color:var(--graphite);
+  font-family:'Lato',-apple-system,system-ui,sans-serif;
+  font-size:16px; line-height:1.55; -webkit-font-smoothing:antialiased;
+  padding-bottom:calc(var(--safe-b) + 24px);
+}
+h1,h2,h3{font-family:'Baskervville',Georgia,serif; font-weight:400; margin:0}
+.num{font-variant-numeric:tabular-nums}
+
+.topbar{position:sticky;top:0;z-index:30;background:var(--graphite);color:var(--cream);
+  padding:calc(var(--safe-t) + 10px) var(--pad) 10px}
+.topbar h1{font-size:19px;letter-spacing:.01em}
+.topbar p{margin:2px 0 0;font-size:12px;opacity:.72}
+
+/* ---------- the four steps ---------- */
+.steps{display:flex;gap:0;background:var(--card);border-bottom:1px solid var(--line);
+  position:sticky;top:0;z-index:20}
+.steps button{flex:1 1 0;min-width:0;appearance:none;border:0;background:none;
+  font:inherit;font-size:12.5px;font-weight:700;color:var(--graphite-60);
+  padding:11px 2px 9px;border-bottom:2.5px solid transparent;cursor:pointer;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.steps button[aria-current="true"]{color:var(--graphite);border-bottom-color:var(--rose)}
+.steps button:disabled{opacity:.38}
+
+main{padding:var(--pad)}
+section{display:none}
+section.on{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:var(--pad);margin-bottom:12px}
+.card h2{font-size:18px;margin-bottom:4px}
+.lede{font-size:13.5px;color:var(--graphite-60);margin:0 0 12px}
+p{margin:0 0 10px}
+.small{font-size:13px;color:var(--graphite-60)}
+
+label{display:block;font-size:12px;font-weight:700;letter-spacing:.04em;
+  text-transform:uppercase;color:var(--graphite-60);margin-bottom:4px}
+input{width:100%;font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);
+  border-radius:8px;background:var(--card);color:var(--graphite)}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.field{margin-bottom:12px}
+
+button.btn{appearance:none;font:inherit;font-weight:700;font-size:15px;
+  padding:12px 16px;min-height:46px;border-radius:9px;border:1px solid var(--graphite);
+  background:var(--graphite);color:var(--cream);cursor:pointer;width:100%}
+button.btn.ghost{background:transparent;color:var(--graphite)}
+button.btn.rose{background:var(--rose);border-color:var(--rose)}
+button.btn:disabled{opacity:.4}
+.row{display:flex;gap:8px;margin-bottom:10px}
+.row button.btn{width:auto;flex:1 1 0}
+
+/* ---------- read-outs ---------- */
+.kv{display:flex;justify-content:space-between;gap:10px;padding:7px 0;
+  border-bottom:1px solid var(--line);font-size:14px}
+.kv:last-child{border-bottom:0}
+.kv span:first-child{color:var(--graphite-60)}
+.kv span:last-child{font-weight:700;font-variant-numeric:tabular-nums;text-align:right}
+.note{border-left:3px solid var(--sun);background:#FBF4E6;padding:9px 12px;
+  border-radius:0 8px 8px 0;font-size:13.5px;margin:0 0 12px}
+.note.bad{border-left-color:var(--rose);background:var(--rose-tint)}
+.note.good{border-left-color:var(--leaf);background:#F0F3EC}
+.note strong{display:block}
+
+/* ---------- the sweep ---------- */
+/* The viewfinder is a fixed sheet over everything, because aiming a phone at a
+   treetop wants the whole screen and no scrolling underneath. */
+.finder{position:fixed;inset:0;z-index:60;background:#26262A;display:none}
+.finder.on{display:block}
+.finder video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+/* No camera is not a failure. The crosshair and the read-out are the instrument;
+   the picture behind them only helps you see what you are pointing at. */
+.finder .blind{position:absolute;inset:0;
+  background:linear-gradient(#1E2732 0%, #3A4A5C 55%, #4A4438 55%, #2A2620 100%)}
+.finder .cross{position:absolute;left:50%;top:50%;width:78px;height:78px;
+  transform:translate(-50%,-50%);pointer-events:none}
+.finder .hud{position:absolute;left:0;right:0;top:calc(var(--safe-t) + 8px);
+  padding:0 16px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.6);pointer-events:none}
+.finder .hud .big{font-size:30px;font-weight:700;font-variant-numeric:tabular-nums;
+  line-height:1.15}
+.finder .hud .sub{font-size:13px;opacity:.85}
+.finder .foot{position:absolute;left:0;right:0;bottom:calc(var(--safe-b) + 14px);
+  padding:0 16px;display:flex;gap:10px;align-items:center}
+.finder .foot button{appearance:none;font:inherit;font-weight:700;font-size:15px;
+  border-radius:9px;border:0;padding:14px 12px;cursor:pointer}
+.finder .foot .take{flex:1 1 auto;background:var(--rose);color:#fff;min-height:52px}
+.finder .foot .side{flex:0 0 auto;background:rgba(255,255,255,.9);color:var(--graphite);
+  min-height:52px;padding:14px 16px}
+.finder .warn{position:absolute;left:16px;right:16px;bottom:calc(var(--safe-b) + 82px);
+  background:rgba(194,90,109,.94);color:#fff;padding:9px 12px;border-radius:8px;
+  font-size:13px;display:none}
+.finder .warn.on{display:block}
+
+/* ---------- the list of marks ---------- */
+.marks{max-height:230px;overflow:auto;border:1px solid var(--line);border-radius:8px}
+.mark{display:flex;justify-content:space-between;align-items:center;gap:8px;
+  padding:8px 11px;border-bottom:1px solid var(--line);font-size:14px;
+  font-variant-numeric:tabular-nums}
+.mark:last-child{border-bottom:0}
+.mark button{appearance:none;border:0;background:none;font:inherit;font-size:19px;
+  line-height:1;color:var(--graphite-30);padding:2px 6px;cursor:pointer}
+
+/* ---------- drawings ---------- */
+figure{margin:0 0 12px}
+figure svg{display:block;width:100%;height:auto;border:1px solid var(--line);
+  border-radius:8px;background:var(--card)}
+figcaption{font-size:12.5px;color:var(--graphite-60);margin-top:6px}
+
+table{width:100%;border-collapse:collapse;font-size:13.5px;font-variant-numeric:tabular-nums}
+th,td{padding:6px 4px;text-align:right;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left}
+th{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--graphite-60);
+  font-weight:700}
+tr.good td{background:#F5F8F1}
+
+#toast{position:fixed;left:50%;bottom:calc(var(--safe-b) + 20px);transform:translateX(-50%);
+  background:var(--graphite);color:var(--cream);padding:10px 16px;border-radius:20px;
+  font-size:14px;z-index:90;opacity:0;pointer-events:none;transition:opacity .18s;
+  max-width:88vw;text-align:center}
+#toast.on{opacity:1}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>Hours of sun</h1>
+  <p>A proof of concept — stand on a spot and find out what it gets</p>
+</div>
+
+<nav class="steps" role="tablist">
+  <button id="tab-where"   aria-current="true">1 · Where</button>
+  <button id="tab-compass">2 · Compass</button>
+  <button id="tab-sweep">3 · Sweep</button>
+  <button id="tab-read">4 · Read</button>
+</nav>
+
+<main>
+
+<!-- ---------------------------------------------------------------- 1 · where -->
+<section id="s-where" class="on">
+  <div class="card">
+    <h2>Where the spot is</h2>
+    <p class="lede">The sun's position depends on latitude, longitude and the date, and
+      on nothing else. GPS is far better than it needs to be — a hundred metres would
+      not move the answer by a minute.</p>
+    <div class="field">
+      <label for="f-site">This spot</label>
+      <input id="f-site" placeholder="the north bed">
+    </div>
+    <div class="pair">
+      <div><label for="f-lat">Latitude</label><input id="f-lat" inputmode="decimal" placeholder="40.0000"></div>
+      <div><label for="f-lon">Longitude</label><input id="f-lon" inputmode="decimal" placeholder="-80.0000"></div>
+    </div>
+    <button class="btn" id="b-gps">Use where I am standing</button>
+    <p class="small" id="gps-say" style="margin-top:10px"></p>
+  </div>
+
+  <div class="card" id="where-out" style="display:none">
+    <h2>What the sun does here</h2>
+    <div id="where-kv"></div>
+    <p class="note" id="where-env"></p>
+  </div>
+</section>
+
+<!-- -------------------------------------------------------------- 2 · compass -->
+<section id="s-compass">
+  <div class="card">
+    <h2>What the compass is lying by</h2>
+    <p class="lede">This is the whole feasibility question. A phone's magnetometer is
+      good to somewhere between five and fifteen degrees, and worse beside a truck or a
+      wire fence — and that error, not the astronomy, is what decides whether any of the
+      rest is worth trusting. So measure it rather than hope.</p>
+
+    <p class="note"><strong>Sight along a shadow.</strong>
+      A shadow's bearing is the sun's bearing plus exactly 180°, and this page knows the
+      sun's bearing to a tenth of a degree. Stand a post — or use your own shadow — point
+      the phone straight down its length, and hold the button. What comes back is what
+      your compass is out by. No looking at the sun required.</p>
+
+    <button class="btn" id="b-sensors">Turn the sensors on</button>
+    <div id="compass-live" style="display:none;margin-top:12px">
+      <div class="kv"><span>Pointing at</span><span id="c-az">—</span></div>
+      <div class="kv"><span>Steadiness of the last 20 readings</span><span id="c-spread">—</span></div>
+      <div class="kv"><span>The phone's own opinion of itself</span><span id="c-acc">—</span></div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn rose" id="b-shadow">Sight a shadow</button>
+        <button class="btn ghost" id="b-sun">Sight the sun</button>
+      </div>
+      <p class="small" id="c-say"></p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Magnetic declination</h2>
+    <p class="lede">Android reports its heading from <em>magnetic</em> north, which is
+      several degrees off true north nearly everywhere. iOS corrects this itself and
+      this field is then left alone. Look yours up once on NOAA's calculator; the
+      shadow sight above absorbs it either way, so it is belt over braces.</p>
+    <div class="field">
+      <label for="f-decl">Degrees east of true north <span id="decl-need"></span></label>
+      <input id="f-decl" inputmode="decimal" placeholder="0">
+    </div>
+  </div>
+
+  <div class="card" id="corr-card" style="display:none">
+    <h2>What was measured</h2>
+    <div id="corr-kv"></div>
+    <button class="btn ghost" id="b-clear-corr" style="margin-top:12px">Forget it and start again</button>
+  </div>
+</section>
+
+<!-- ---------------------------------------------------------------- 3 · sweep -->
+<section id="s-sweep">
+  <div class="card">
+    <h2>The skyline</h2>
+    <p class="lede">Put the crosshair on the top of whatever would get between this spot
+      and the sun — a treeline, a barn, a ridge — and mark it. Twenty or thirty marks
+      around the sun's own arc is a survey. Only the <em>angle</em> matters, never the
+      height or the distance, so nothing has to be measured or paced out.</p>
+    <button class="btn rose" id="b-sweep">Open the viewfinder</button>
+    <p class="small" id="sweep-say" style="margin-top:10px"></p>
+  </div>
+
+  <div class="card">
+    <h2>Marks <span class="small num" id="mark-n"></span></h2>
+    <figure id="rose-fig"></figure>
+    <div class="marks" id="mark-list"></div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn ghost" id="b-undo">Undo the last</button>
+      <button class="btn ghost" id="b-wipe">Clear them all</button>
+    </div>
+  </div>
+</section>
+
+<!-- ----------------------------------------------------------------- 4 · read -->
+<section id="s-read">
+  <div class="card">
+    <h2>What this spot gets</h2>
+    <p class="lede" id="read-lede">Computed for every day of the year at one-minute
+      steps — so a month is a real average of real days.</p>
+    <button class="btn" id="b-compute">Work it out</button>
+  </div>
+  <div id="read-out"></div>
+</section>
+
+</main>
+
+<div id="toast"></div>
+
+<!-- The model. Every piece of arithmetic on this page lives in there, which is what
+     lets `node test-sun.js` check it against published astronomy without a browser. -->
+<script src="sun.js"></script>
+<script>
+"use strict";
+
+/* ---------- odds and ends ---------- */
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g,
+  c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const f1 = n => (Math.round(n * 10) / 10).toFixed(1);
+const deg = n => f1(n) + "°";
+let toastT = null;
+function toast(msg){
+  const t = $("toast"); t.textContent = msg; t.classList.add("on");
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), 2600);
+}
+/* Local wall-clock time of day. Sun HOURS are immune to daylight saving; the times
+   printed beside them are not, so they go through the device's own idea of the clock. */
+const clock = d => d ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—";
+const hoursMins = h => `${Math.floor(h)}h ${String(Math.round((h % 1) * 60)).padStart(2, "0")}m`;
+
+/* ---------- what the survey knows ---------- */
+const KEY = "ppf-sun-survey";
+const state = {
+  site: "", lat: null, lon: null,
+  declination: 0,
+  correction: null,       /* degrees the compass is out by, from a shadow sight */
+  correctionAt: null,
+  marks: []               /* {az, alt, spread, at} */
+};
+/* Kept on this phone and nowhere else. A proof of concept has no business writing to
+   the farm's records, so it does not know how. */
+function save(){
+  try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){}
+}
+function load(){
+  try{
+    const raw = localStorage.getItem(KEY);
+    if(raw) Object.assign(state, JSON.parse(raw));
+  }catch(e){}
+}
+
+/* ============================================================================
+   Where the phone is pointing
+   ============================================================================ */
+
+/* The crosshair sits dead centre of the screen and the target is put behind it, which
+   means the camera's field of view never enters the arithmetic — no lens calibration,
+   and none of the bugs that come with one. All that is measured is the phone's attitude.
+
+   The device's own axes are x right across the screen, y out of the top, z out towards
+   your face; the back camera therefore looks along -z. Turning that vector into the
+   world frame and reading off its bearing and its rise is the whole measurement.
+
+   Doing it through the rotation matrix rather than trigonometry on `beta` directly is
+   what keeps it correct when the phone is tilted steeply back at a treetop, which is
+   where it spends its whole working life. It also means the screen's own rotation never
+   has to be corrected for: the back of the phone points where it points whether the UI
+   is portrait or landscape. */
+function cameraAxis(alpha, beta, gamma){
+  const a = alpha * Sun.RAD, b = beta * Sun.RAD, g = gamma * Sun.RAD;
+  const cA = Math.cos(a), sA = Math.sin(a), cB = Math.cos(b),
+        sB = Math.sin(b), cG = Math.cos(g), sG = Math.sin(g);
+  /* The negated third column of the ZXY rotation matrix: where -z lands in the world. */
+  const vx = -(cA * sG + cG * sA * sB);          /* east  */
+  const vy = -(sA * sG - cA * cG * sB);          /* north */
+  const vz = -(cB * cG);                          /* up    */
+  return {
+    az: Sun.norm360(Math.atan2(vx, vy) * Sun.DEG),
+    alt: Math.asin(Math.max(-1, Math.min(1, vz))) * Sun.DEG
+  };
+}
+
+const Orient = {
+  live: false, raw: null, heading: null, accuracy: null,
+  ring: [],                     /* the last 20 readings, already corrected */
+  listening: false,
+
+  async start(){
+    /* iOS will not part with the motion sensors except from a tap, and only over
+       https. Everywhere else the permission does not exist and asking is harmless. */
+    try{
+      if(typeof DeviceOrientationEvent !== "undefined" &&
+         typeof DeviceOrientationEvent.requestPermission === "function"){
+        const r = await DeviceOrientationEvent.requestPermission();
+        if(r !== "granted") return { ok: false, why: "The phone refused the motion sensors." };
+      }
+    }catch(e){
+      return { ok: false, why: "The phone refused the motion sensors: " + e.message };
+    }
+    if(!this.listening){
+      /* `absolute` is the one referenced to the earth. Where it exists it is the only
+         one worth listening to; where it does not, the plain event is what there is. */
+      const ev = ("ondeviceorientationabsolute" in window) ? "deviceorientationabsolute"
+                                                           : "deviceorientation";
+      window.addEventListener(ev, e => Orient.take(e), true);
+      this.listening = true;
+    }
+    return { ok: true };
+  },
+
+  take(e){
+    if(e.alpha == null && e.beta == null && e.gamma == null) return;
+    this.live = true;
+    this.raw = { alpha: e.alpha || 0, beta: e.beta || 0, gamma: e.gamma || 0 };
+    /* iOS hands over a heading already turned to TRUE north, and its own opinion of
+       how badly it is doing. Both are worth more than anything derived from alpha. */
+    if(typeof e.webkitCompassHeading === "number" && !isNaN(e.webkitCompassHeading)){
+      this.heading = e.webkitCompassHeading;
+      this.accuracy = typeof e.webkitCompassAccuracy === "number" ? e.webkitCompassAccuracy : null;
+    }
+    const p = this.reading();
+    if(p){
+      this.ring.push(p);
+      if(this.ring.length > 20) this.ring.shift();
+    }
+    if(typeof onOrient === "function") onOrient();
+  },
+
+  /* One instant reading, with every correction already applied. */
+  reading(){
+    if(!this.raw) return null;
+    const v = cameraAxis(this.raw.alpha, this.raw.beta, this.raw.gamma);
+    let az = v.az + this.headingFix() - (state.correction || 0);
+    return { az: Sun.norm360(az), alt: v.alt };
+  },
+
+  /* A single scalar turn applied to the whole reading, rather than a substitution
+     inside the matrix — which keeps alpha and gamma paired as the sensor reported them.
+     On iOS it is the gap between the fused true-north heading and what the matrix
+     believes; elsewhere it is the local magnetic declination. */
+  headingFix(){
+    if(this.heading != null && this.raw)
+      return Sun.arc(this.heading, Sun.norm360(360 - this.raw.alpha));
+    return +state.declination || 0;
+  },
+
+  /* A mark is the MEDIAN of the last twenty readings, never one instant of it. The
+     needle jitters by several degrees and a median throws that away for nothing. */
+  settled(){
+    if(this.ring.length < 3) return null;
+    const ref = this.ring[this.ring.length - 1].az;
+    const offs = this.ring.map(p => Sun.arc(p.az, ref)).sort((a, b) => a - b);
+    const alts = this.ring.map(p => p.alt).sort((a, b) => a - b);
+    const mid = a => a[Math.floor(a.length / 2)];
+    const az = Sun.norm360(ref + mid(offs));
+    /* How far the readings disagree — the honest measure of whether to believe this one. */
+    const spread = Math.max(...this.ring.map(p => Math.abs(Sun.arc(p.az, az))));
+    return { az, alt: mid(alts), spread };
+  },
+
+  /* Whether the compass is in a fit state to be believed at all. */
+  trouble(){
+    const s = this.settled();
+    if(this.accuracy != null && (this.accuracy < 0 || this.accuracy > 15))
+      return "The compass says it is badly out. Wave the phone in a figure of eight to settle it.";
+    if(s && s.spread > 8)
+      return "The readings are jumping about — stand clear of anything metal and hold still.";
+    return null;
+  }
+};
+
+/* ============================================================================
+   The screens
+   ============================================================================ */
+
+const TABS = ["where", "compass", "sweep", "read"];
+let tab = "where";
+function show(name){
+  tab = name;
+  for(const t of TABS){
+    $("s-" + t).classList.toggle("on", t === name);
+    $("tab-" + t).setAttribute("aria-current", String(t === name));
+  }
+  if(name === "where") renderWhere();
+  if(name === "compass") renderCompass();
+  if(name === "sweep") renderSweep();
+  window.scrollTo(0, 0);
+}
+for(const t of TABS) $("tab-" + t).onclick = () => show(t);
+
+const located = () => isFinite(state.lat) && isFinite(state.lon) &&
+                      state.lat !== null && state.lon !== null;
+
+/* ---------- 1 · where ---------- */
+$("b-gps").onclick = () => {
+  if(!navigator.geolocation) return toast("This browser has no geolocation");
+  $("gps-say").textContent = "Asking…";
+  navigator.geolocation.getCurrentPosition(p => {
+    state.lat = +p.coords.latitude.toFixed(5);
+    state.lon = +p.coords.longitude.toFixed(5);
+    $("f-lat").value = state.lat; $("f-lon").value = state.lon;
+    $("gps-say").textContent = `Good to about ${Math.round(p.coords.accuracy)} m — far closer than this needs.`;
+    save(); renderWhere();
+  }, err => {
+    $("gps-say").textContent = "No fix: " + err.message + ". Type it in instead.";
+  }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
+};
+$("f-site").oninput = e => { state.site = e.target.value; save(); };
+for(const [id, key] of [["f-lat","lat"], ["f-lon","lon"]]){
+  $(id).oninput = e => {
+    const v = parseFloat(e.target.value);
+    state[key] = isNaN(v) ? null : v;
+    save(); renderWhere();
+  };
+}
+$("f-decl").oninput = e => {
+  const v = parseFloat(e.target.value);
+  state.declination = isNaN(v) ? 0 : v;
+  save();
+};
+
+function renderWhere(){
+  if(!located()){ $("where-out").style.display = "none"; return; }
+  $("where-out").style.display = "";
+  const year = new Date().getFullYear();
+  const jun = Sun.sunTimes(new Date(Date.UTC(year, 5, 21, 12)), state.lat, state.lon);
+  const dec = Sun.sunTimes(new Date(Date.UTC(year, 11, 21, 12)), state.lat, state.lon);
+  const env = Sun.azimuthEnvelope(state.lat, state.lon, year);
+  $("where-kv").innerHTML =
+    kv("Longest day", jun.polar === "day" ? "the sun never sets" : hoursMins(jun.dayMinutes / 60)) +
+    kv("Shortest day", dec.polar === "night" ? "the sun never rises" : hoursMins(dec.dayMinutes / 60)) +
+    kv("Sun highest, at midsummer noon", deg(Sun.position(jun.noon, state.lat, state.lon).alt)) +
+    kv("Sun highest, at midwinter noon", deg(Sun.position(dec.noon, state.lat, state.lon).alt));
+  $("where-env").innerHTML = env.span >= 359
+    ? "<strong>The sun goes all the way round here.</strong> The sweep has to be a full circle."
+    : `<strong>The sun only ever occupies ${Math.round(env.from)}° to ${Math.round(env.to)}°.</strong>
+       That is ${Math.round(env.span)}° of the compass, so ${Math.round(360 - env.span)}° of sky
+       to the ${state.lat >= 0 ? "north" : "south"} never needs sweeping at all.`;
+}
+const kv = (k, v) => `<div class="kv"><span>${esc(k)}</span><span>${esc(v)}</span></div>`;
+
+/* ---------- 2 · compass ---------- */
+$("b-sensors").onclick = async () => {
+  const r = await Orient.start();
+  if(!r.ok) return toast(r.why);
+  $("compass-live").style.display = "";
+  $("b-sensors").textContent = "Sensors are on";
+  $("b-sensors").disabled = true;
+};
+function renderCompass(){
+  $("f-decl").value = state.declination || "";
+  $("decl-need").textContent = Orient.heading != null ? "— not needed, iOS has done it" : "";
+  const c = $("corr-card");
+  if(state.correction == null){ c.style.display = "none"; return; }
+  c.style.display = "";
+  const off = state.correction;
+  $("corr-kv").innerHTML =
+    kv("Your compass reads", (off >= 0 ? "+" : "") + deg(off) + " of true") +
+    kv("Measured", state.correctionAt ? new Date(state.correctionAt).toLocaleString() : "—") +
+    kv("Every mark is corrected by", (off >= 0 ? "-" : "+") + deg(Math.abs(off)));
+}
+function sight(kind){
+  if(!located()) return toast("Set where you are standing first");
+  const s = Orient.settled();
+  if(!s) return toast("No steady reading yet — hold still a moment");
+  const c = Sun.compassError(new Date(), state.lat, state.lon, s.az, kind);
+  if(!c.usable) return toast("The sun is too low to sight against just now");
+  /* The reading already had the previous correction applied, so what comes back is the
+     residual — it is added to what is there rather than replacing it. */
+  state.correction = Sun.arc((state.correction || 0) + c.error, 0);
+  state.correctionAt = new Date().toISOString();
+  save(); renderCompass();
+  $("c-say").textContent =
+    `Your compass is ${deg(Math.abs(c.error))} ${c.error >= 0 ? "clockwise" : "anticlockwise"} of true. ` +
+    (Math.abs(c.error) < 3 ? "That is a good compass." :
+     Math.abs(c.error) < 15 ? "Ordinary for a phone, and now corrected for." :
+     "That is a lot — take it again standing clear of anything metal.");
+  toast("Corrected by " + deg(Math.abs(c.error)));
+}
+$("b-shadow").onclick = () => sight("shadow");
+$("b-sun").onclick = () => sight("sun");
+$("b-clear-corr").onclick = () => {
+  state.correction = null; state.correctionAt = null; save(); renderCompass();
+  $("c-say").textContent = "";
+};
+
+/* ---------- 3 · sweep ---------- */
+/* The camera is an aiming aid, not an instrument: it helps you see the treetop you are
+   pointing at, and measures nothing whatever. So when getUserMedia fails — which it has
+   done on and off for years in an iOS home-screen web app — the survey carries on
+   against a painted background, and every number it produces is exactly as good. */
+let cameraOn = false, stream = null;
+async function openFinder(){
+  if(!located()) return toast("Set where you are standing first");
+  const r = await Orient.start();
+  if(!r.ok) return toast(r.why);
+  $("finder").classList.add("on");
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } });
+    $("fv").srcObject = stream;
+    cameraOn = true;
+    $("blind").style.display = "none";
+  }catch(e){
+    cameraOn = false;
+    $("blind").style.display = "";
+    toast("No camera — aim with the crosshair, it measures just the same");
+  }
+  onOrient();
+}
+function closeFinder(){
+  $("finder").classList.remove("on");
+  if(stream){ stream.getTracks().forEach(t => t.stop()); stream = null; }
+  cameraOn = false;
+  renderSweep();
+}
+$("b-sweep").onclick = openFinder;
+
+/* Redrawn on every sensor event while the viewfinder is up. */
+function onOrient(){
+  if(!$("finder").classList.contains("on")) return;
+  const s = Orient.settled();
+  if(!s) return;
+  $("hud-big").textContent = `${Math.round(s.az)}°  ·  ${s.alt >= 0 ? "+" : ""}${Math.round(s.alt)}°`;
+  $("hud-sub").textContent = `bearing and rise · steady to ${deg(s.spread)}` +
+    (Orient.accuracy != null ? ` · phone says ±${Math.round(Orient.accuracy)}°` : "");
+  const t = Orient.trouble();
+  $("f-warn").textContent = t || "";
+  $("f-warn").classList.toggle("on", !!t);
+  $("hud-n").textContent = state.marks.length + " marked";
+}
+function takeMark(){
+  const s = Orient.settled();
+  if(!s) return toast("Hold still a moment");
+  state.marks.push({ az: s.az, alt: s.alt, spread: s.spread, at: new Date().toISOString() });
+  save(); onOrient();
+  toast(`Marked ${Math.round(s.az)}° at ${Math.round(s.alt)}° up`);
+}
+
+$("b-undo").onclick = () => { state.marks.pop(); save(); renderSweep(); };
+$("b-wipe").onclick = () => {
+  if(!state.marks.length) return;
+  if(confirm("Throw away all " + state.marks.length + " marks?")){ state.marks = []; save(); renderSweep(); }
+};
+
+function renderSweep(){
+  $("mark-n").textContent = state.marks.length ? `· ${state.marks.length}` : "";
+  $("mark-list").innerHTML = state.marks.length
+    ? state.marks.map((m, i) =>
+        `<div class="mark"><span>${Math.round(m.az)}° &nbsp; ${m.alt >= 0 ? "+" : ""}${Math.round(m.alt)}° up</span>
+         <button data-i="${i}" aria-label="Remove this mark">&times;</button></div>`).join("")
+    : `<div class="mark"><span class="small">Nothing marked yet.</span></div>`;
+  for(const b of $("mark-list").querySelectorAll("button"))
+    b.onclick = () => { state.marks.splice(+b.dataset.i, 1); save(); renderSweep(); };
+
+  $("rose-fig").innerHTML = located() ? coverageRose() : "";
+  $("sweep-say").textContent = state.correction == null
+    ? "The compass has not been checked yet — step 2 takes ten seconds and is what makes this trustworthy."
+    : `Compass corrected by ${deg(Math.abs(state.correction))}.`;
+}
+
+/* A plan view: the sun's arc drawn as the band that matters, the marks as spokes whose
+   length is the angle of the skyline, and any hole in the survey shaded. */
+function coverageRose(){
+  /* The ring has to leave room inside the box for the four letters outside it. */
+  const R = 90, cx = 110, cy = 110;
+  const env = Sun.azimuthEnvelope(state.lat, state.lon, new Date().getFullYear());
+  const mask = Sun.Mask.make(state.marks);
+  const gaps = Sun.gapsThatMatter(mask, env, 25);
+  const ceil = Math.max(30, Sun.Mask.ceiling(mask) + 5);
+  const pt = (az, r) => [cx + r * Math.sin(az * Sun.RAD), cy - r * Math.cos(az * Sun.RAD)];
+  const wedge = (from, span, r, fill) => {
+    if(span >= 359.9) return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}"/>`;
+    const [x0, y0] = pt(from, r), [x1, y1] = pt(from + span, r);
+    return `<path d="M ${cx} ${cy} L ${x0.toFixed(1)} ${y0.toFixed(1)}
+      A ${r} ${r} 0 ${span > 180 ? 1 : 0} 1 ${x1.toFixed(1)} ${y1.toFixed(1)} Z" fill="${fill}"/>`;
+  };
+  const spokes = mask.map(m => {
+    const [x, y] = pt(m.az, R * Math.max(0.06, Math.min(1, m.alt / ceil)));
+    return `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}"
+             stroke="#A9B49A" stroke-width="2.4" stroke-linecap="round"/>`;
+  }).join("");
+  const label = (az, t) => { const [x, y] = pt(az, R + 14);
+    return `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle"
+      dominant-baseline="central" font-size="12" font-weight="700" fill="#8A8A8C">${t}</text>`; };
+
+  return `<svg viewBox="0 0 220 220" role="img" aria-label="Coverage of the survey">
+    ${wedge(env.from, env.span, R, "#F3EFE9")}
+    ${gaps.map(g => wedge(g.from, g.span, R, "#F7E7EA")).join("")}
+    <circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="#E8E2DF"/>
+    <circle cx="${cx}" cy="${cy}" r="${R * 0.5}" fill="none" stroke="#E8E2DF" stroke-dasharray="2 3"/>
+    ${spokes}
+    ${label(0,"N")}${label(90,"E")}${label(180,"S")}${label(270,"W")}
+  </svg>
+  <figcaption>${gaps.length
+    ? `<strong>${gaps.length} hole${gaps.length > 1 ? "s" : ""} in the survey</strong>, shaded pink,
+       and the sun passes through ${gaps.length > 1 ? "them" : "it"} — an unswept sector reads as
+       open sky and would flatter this spot.`
+    : "The pale band is where the sun ever goes. Every part of it has been swept."}
+    Spoke length is the angle of the skyline, out to ${Math.round(ceil)}°.</figcaption>`;
+}
+
+/* ---------- 4 · read ---------- */
+$("b-compute").onclick = () => {
+  if(!located()) return toast("Set where you are standing first");
+  $("b-compute").disabled = true;
+  $("b-compute").textContent = "Working…";
+  /* Let the button repaint before half a million evaluations of the sun's position. */
+  setTimeout(() => {
+    try{ renderRead(); }
+    finally{ $("b-compute").disabled = false; $("b-compute").textContent = "Work it out again"; }
+  }, 30);
+};
+
+function renderRead(){
+  const year = new Date().getFullYear();
+  const mask = Sun.Mask.make(state.marks);
+  const env = Sun.azimuthEnvelope(state.lat, state.lon, year);
+  const gaps = Sun.gapsThatMatter(mask, env, 25);
+  const t0 = Date.now();
+  const months = Sun.byMonth(Sun.yearHours(state.lat, state.lon, year, mask));
+  const ms = Date.now() - t0;
+
+  const caveats = [];
+  if(!state.marks.length) caveats.push(`<p class="note bad"><strong>Nothing has been swept.</strong>
+    This is the open-sky answer — what the spot would get with a clear horizon all round,
+    which is the most it could ever get and almost certainly not what it gets.</p>`);
+  if(state.correction == null) caveats.push(`<p class="note bad"><strong>The compass was never checked.</strong>
+    A phone magnetometer is routinely ten degrees out. On a lopsided skyline that is worth
+    close to half an hour a day in winter — go back to step 2 and sight a shadow.</p>`);
+  else caveats.push(`<p class="note good"><strong>Compass corrected by ${deg(Math.abs(state.correction))}.</strong>
+    Within a couple of degrees of true, the daily totals below should be good to a few minutes.</p>`);
+  if(gaps.length) caveats.push(`<p class="note"><strong>${gaps.length} unswept
+    sector${gaps.length > 1 ? "s" : ""} in the sun's way.</strong> Those bearings are being read as
+    open sky, so every figure below is the optimistic end of the truth.</p>`);
+  caveats.push(`<p class="note"><strong>This is sunlight the sky allows, not sunlight that fell.</strong>
+    Cloud is not in it, and a bare winter tree is treated as solid as a summer one —
+    both would only ever take hours away, never add them.</p>`);
+
+  const best = Math.max(...months.map(m => m.sun));
+  $("read-out").innerHTML = `
+    <div class="card">
+      <h2>${esc(state.site || "This spot")}</h2>
+      <p class="lede">${state.lat.toFixed(4)}, ${state.lon.toFixed(4)} · ${state.marks.length}
+        marks · every day of ${year} at one-minute steps, in ${ms} ms.</p>
+      ${caveats.join("")}
+    </div>
+
+    <div class="card">
+      <h2>The sun's path, and what stands in it</h2>
+      ${pathChart(mask, env, year)}
+    </div>
+
+    <div class="card">
+      <h2>Hours of direct sun, by month</h2>
+      ${barChart(months, best)}
+      <table>
+        <thead><tr><th>Month</th><th>Sun</th><th>Daylight</th><th>Lost</th><th>First</th><th>Last</th></tr></thead>
+        <tbody>${months.map(m => `<tr class="${m.sun >= 6 ? "good" : ""}">
+          <td>${m.name.slice(0, 3)}</td>
+          <td>${f1(m.sun)}</td>
+          <td>${f1(m.daylight)}</td>
+          <td>${m.lost < 0.05 ? "—" : f1(m.lost)}</td>
+          <td>${clock(m.mid.first)}</td>
+          <td>${clock(m.mid.last)}</td></tr>`).join("")}</tbody>
+      </table>
+      <p class="small" style="margin-top:10px">Hours a day, averaged over the month.
+        <strong>Lost</strong> is what the skyline costs — daylight the spot would have had
+        with a clear horizon and does not get. Shaded rows clear six hours, which is what a
+        peony wants. First and last are for a middling day of the month, in local time.</p>
+    </div>
+
+    <div class="card">
+      <h2>Take it away</h2>
+      <p class="small">The survey as it stands, to paste somewhere it will keep.</p>
+      <button class="btn ghost" id="b-copy">Copy the survey as JSON</button>
+    </div>`;
+
+  $("b-copy").onclick = async () => {
+    const blob = JSON.stringify({ ...state, computedAt: new Date().toISOString(),
+      months: months.map(m => ({ month: m.name, sun: +f1(m.sun), daylight: +f1(m.daylight) })) }, null, 2);
+    try{ await navigator.clipboard.writeText(blob); toast("Copied"); }
+    catch(e){ window.prompt("Copy this:", blob); }
+  };
+}
+
+/* The drawing that answers the question at a glance: the skyline as a silhouette, and
+   the sun's arc for the 21st of each month laid over it. Where an arc passes above the
+   silhouette the spot is in sun, and where it dips behind it is not. */
+function pathChart(mask, env, year){
+  const W = 640, H = 300, L = 34, R = 10, T = 14, B = 26;
+  const iw = W - L - R, ih = H - T - B;
+  const full = env.span >= 359;
+  const lo = full ? -180 : env.lo - 4, hi = full ? 180 : env.hi + 4;
+  const top = Math.ceil(Math.max(
+    90 - Math.abs(state.lat - 23.44), Sun.Mask.ceiling(mask) + 4) / 10) * 10;
+
+  const x = az => L + iw * ((Sun.arc(az, env.centre) - lo) / (hi - lo));
+  const y = alt => T + ih * (1 - Math.max(0, Math.min(top, alt)) / top);
+  const inRange = az => { const d = Sun.arc(az, env.centre); return d >= lo && d <= hi; };
+
+  /* The skyline, sampled across the chart rather than mark by mark, so the fill follows
+     the interpolation the model actually uses. */
+  const sky = [];
+  for(let i = 0; i <= 240; i++){
+    const d = lo + (hi - lo) * (i / 240), az = Sun.norm360(env.centre + d);
+    sky.push(`${(L + iw * i / 240).toFixed(1)},${y(Sun.Mask.at(mask, az)).toFixed(1)}`);
+  }
+  const silhouette = `<polygon points="${L},${y(0)} ${sky.join(" ")} ${L + iw},${y(0)}"
+    fill="#A9B49A" fill-opacity=".55" stroke="#8C9A7B" stroke-width="1.2"/>`;
+
+  /* One arc a month, on the 21st. June and December are the outer two; the rest fall
+     between them in pairs, which is why nine lines look like twelve. */
+  const arcs = [];
+  for(let m = 0; m < 12; m++){
+    const pts = Sun.sunArc(new Date(Date.UTC(year, m, 21, 12)), state.lat, state.lon, 6)
+      .filter(p => p.alt >= 0 && inRange(p.az))
+      .map(p => `${x(p.az).toFixed(1)},${y(p.alt).toFixed(1)}`);
+    if(pts.length < 2) continue;
+    const solstice = m === 5 || m === 11;
+    arcs.push(`<polyline points="${pts.join(" ")}" fill="none" stroke="#E0A32E"
+      stroke-width="${solstice ? 2.2 : 1.1}" stroke-opacity="${solstice ? 1 : .55}"/>`);
+    if(solstice) arcs.push(`<text x="${x(env.centre) + 4}" y="${y(90 - Math.abs(state.lat - (m === 5 ? 23.44 : -23.44))) - 6}"
+      font-size="11" font-weight="700" fill="#B5811F">${m === 5 ? "21 Jun" : "21 Dec"}</text>`);
+  }
+
+  /* Gridlines every fifteen degrees of altitude, and the compass points that fall in range. */
+  const grid = [];
+  for(let a = 0; a <= top; a += 15) grid.push(
+    `<line x1="${L}" y1="${y(a)}" x2="${L + iw}" y2="${y(a)}" stroke="#E8E2DF" stroke-width="1"/>
+     <text x="${L - 6}" y="${y(a)}" text-anchor="end" dominant-baseline="central"
+       font-size="10.5" fill="#8A8A8C">${a}°</text>`);
+  const ticks = [];
+  for(let az = 0; az < 360; az += 30){
+    if(!inRange(az)) continue;
+    const name = { 0:"N", 90:"E", 180:"S", 270:"W" }[az] || az + "°";
+    ticks.push(`<line x1="${x(az)}" y1="${T + ih}" x2="${x(az)}" y2="${T + ih + 4}" stroke="#C9C9CB"/>
+      <text x="${x(az)}" y="${H - 8}" text-anchor="middle" font-size="10.5"
+        font-weight="${name.length === 1 ? 700 : 400}" fill="#8A8A8C">${name}</text>`);
+  }
+
+  return `<figure><svg viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="The sun's path across the year against the measured skyline">
+    <rect x="${L}" y="${T}" width="${iw}" height="${ih}" fill="#F4F8FB"/>
+    ${grid.join("")}${silhouette}${arcs.join("")}
+    <line x1="${L}" y1="${T + ih}" x2="${L + iw}" y2="${T + ih}" stroke="#C9C9CB"/>
+    ${ticks.join("")}
+  </svg>
+  <figcaption>Compass bearing across, height above the horizon up. The green is your
+    skyline; the amber lines are the sun on the 21st of each month, the two heavy ones
+    being the solstices. Wherever an amber line runs above the green, this spot is in
+    sun.</figcaption></figure>`;
+}
+
+function barChart(months, best){
+  const W = 640, H = 190, L = 30, B = 26, T = 8;
+  const ih = H - T - B, bw = (W - L - 8) / 12;
+  const top = Math.max(4, Math.ceil(Math.max(...months.map(m => m.daylight)) / 2) * 2);
+  const y = h => T + ih * (1 - h / top);
+  const bars = months.map((m, i) => {
+    const bx = L + i * bw + bw * 0.16, w = bw * 0.68;
+    return `<rect x="${bx.toFixed(1)}" y="${y(m.daylight).toFixed(1)}" width="${w.toFixed(1)}"
+        height="${(ih - (y(m.daylight) - T)).toFixed(1)}" fill="#E8E2DF"/>
+      <rect x="${bx.toFixed(1)}" y="${y(m.sun).toFixed(1)}" width="${w.toFixed(1)}"
+        height="${(ih - (y(m.sun) - T)).toFixed(1)}" fill="${m.sun >= 6 ? "#A9B49A" : "#E0A32E"}"/>
+      <text x="${(bx + w / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle" font-size="10.5"
+        fill="#8A8A8C">${m.name[0]}</text>`;
+  }).join("");
+  const six = `<line x1="${L}" y1="${y(6)}" x2="${W - 8}" y2="${y(6)}" stroke="#C25A6D"
+      stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="${L + 4}" y="${y(6) - 4}" font-size="10.5" font-weight="700" fill="#C25A6D">6 hours</text>`;
+  const grid = [];
+  for(let h = 0; h <= top; h += 4) grid.push(
+    `<line x1="${L}" y1="${y(h)}" x2="${W - 8}" y2="${y(h)}" stroke="#E8E2DF"/>
+     <text x="${L - 5}" y="${y(h)}" text-anchor="end" dominant-baseline="central"
+       font-size="10.5" fill="#8A8A8C">${h}</text>`);
+  return `<figure><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Hours of sun by month">
+    ${grid.join("")}${bars}${six}</svg>
+  <figcaption>Solid is direct sun; the pale bar behind it is the daylight there was to be
+    had. The gap between them is the skyline.</figcaption></figure>`;
+}
+
+/* ---------- the viewfinder's own markup, kept out of the document until wanted ---------- */
+document.body.insertAdjacentHTML("beforeend", `
+<div class="finder" id="finder">
+  <div class="blind" id="blind"></div>
+  <video id="fv" playsinline autoplay muted></video>
+  <svg class="cross" viewBox="0 0 78 78" aria-hidden="true">
+    <circle cx="39" cy="39" r="22" fill="none" stroke="#fff" stroke-width="1.6" opacity=".85"/>
+    <line x1="39" y1="4" x2="39" y2="26" stroke="#fff" stroke-width="1.6" opacity=".85"/>
+    <line x1="39" y1="52" x2="39" y2="74" stroke="#fff" stroke-width="1.6" opacity=".85"/>
+    <line x1="4" y1="39" x2="26" y2="39" stroke="#fff" stroke-width="1.6" opacity=".85"/>
+    <line x1="52" y1="39" x2="74" y2="39" stroke="#fff" stroke-width="1.6" opacity=".85"/>
+    <circle cx="39" cy="39" r="2" fill="#C25A6D"/>
+  </svg>
+  <div class="hud">
+    <div class="big" id="hud-big">—</div>
+    <div class="sub" id="hud-sub">waiting for the sensors</div>
+    <div class="sub" id="hud-n"></div>
+  </div>
+  <div class="warn" id="f-warn"></div>
+  <div class="foot">
+    <button class="side" id="f-done">Done</button>
+    <button class="take" id="f-mark">Mark this treetop</button>
+    <button class="side" id="f-undo">Undo</button>
+  </div>
+</div>`);
+$("f-mark").onclick = takeMark;
+$("f-undo").onclick = () => { state.marks.pop(); save(); onOrient(); toast("Took the last one back"); };
+$("f-done").onclick = closeFinder;
+
+/* ---------- opening ---------- */
+load();
+$("f-site").value = state.site || "";
+if(state.lat != null) $("f-lat").value = state.lat;
+if(state.lon != null) $("f-lon").value = state.lon;
+$("f-decl").value = state.declination || "";
+show("where");
+</script>
+</body>
+</html>

@@ -12,6 +12,10 @@ complaint and folders unreliably.
     manifest.webmanifest
     icon-*.png      the home-screen mark
 
+    sun.html        hours of sun on a spot — a proof of concept, and not the app
+    sun.js          the arithmetic behind it
+    test-sun.js     that arithmetic, against published astronomy
+
 One face, and it is a phone. There was a desktop one at `index.html` and a phone one at
 `m.html`; the phone one is the app now and lives at the root. The desktop face is gone,
 and with it the second copy of everything both faces knew.
@@ -57,9 +61,41 @@ There is a second set of books in the same repository — `sandbox-data.json` an
 separate photo directory, and what it owes is kept on a shelf of its own, so an edit made
 there out of range can never be sent home to the farm.
 
+## Hours of sun, which is not the app
+
+`sun.html` answers a different question: how many hours of direct sun does one spot get,
+month by month. It is a proof of concept and it is deliberately not wired into anything.
+It writes no records, loads no `store.js`, is not in the shell, and knows nothing about
+peonies. Open it, stand on a spot, and it tells you what that spot gets.
+
+The whole model is two facts and one comparison. Where the sun is — pure astronomy, good
+to a tenth of a degree, no network. How high the treeline stands in that direction — the
+part you go outside and measure. The spot is in sun when the first is above the second;
+count the minutes across every day of the year and you have the answer by month.
+
+Only the **angle** of an obstruction matters, never its height or its distance: a sixty
+foot oak two hundred feet away and a fifteen foot hedge fifty feet away shade a spot
+identically. So nothing is ever measured or paced out. You put a crosshair on a treetop
+and the phone's attitude sensors do the rest — which also means the camera is only an
+aiming aid, and the survey works exactly as well when iOS refuses to hand one over, as it
+has done on and off for years in a home-screen web app.
+
+The one real uncertainty is the compass. A phone's magnetometer is five to fifteen degrees
+out, and on a lopsided skyline ten degrees is worth close to half an hour of a winter day —
+`test-sun.js` pins that number down. So the survey measures the error rather than hoping:
+a shadow's bearing is the sun's bearing plus exactly 180°, and the page knows the sun's
+bearing to a tenth of a degree. Sight along any shadow and a ±10° unknown becomes a ±2°
+known, which is five minutes rather than twenty-seven.
+
+Offline needs no work here. The worker asks the network first for anything on this origin
+and keeps what comes back, so `sun.html` opens without a signal once it has been opened
+with one. It is **not** in `SHELL` on purpose: that list is all-or-nothing on install, and
+a proof of concept has no business being able to leave the farm app with no shell.
+
 ## Working on it
 
     node test-seam.js
+    node test-sun.js
 
 Needs nothing installed. It pulls the real functions out of `store.js` rather than
 restating them, so they cannot quietly drift from the app, and stands a repository up in
