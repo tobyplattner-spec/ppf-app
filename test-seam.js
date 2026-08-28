@@ -274,7 +274,8 @@ ok(!/\.receiptview\.doc\{/.test(app), "and the box that let its frame take the t
 ok(/\.receiptview iframe\{[^}]*transform-origin/.test(app), "the frame is pushed about by the same transform");
 ok(/\.receiptview iframe\{[^}]*pointer-events:none/.test(app), "and takes no touches of its own");
 ok(/\.receiptview \.grab\{/.test(app), "something of ours is laid over it for the fingers to land on");
-ok(/const RC_DOC_H/.test(app), "the frame is given a canvas, since it has no size to offer");
+ok(/const LETTER = \{ w: 612, h: 792, n: 1 \}/.test(app),
+   "a page of Letter to fall back on, which a receipt almost always is");
 const rz = app.slice(app.indexOf("function wireReceiptZoom"), app.indexOf("/* ---------- recording one"));
 ok(/fixed \? fixed\.w : img\.naturalWidth/.test(rz), "one zoom serves a picture and a frame alike");
 ok(/addEventListener\("touchmove", e => e\.preventDefault\(\)/.test(rz),
@@ -288,18 +289,29 @@ ok(!/Pinch to zoom|Double-tap to fit/.test(app),
 
 /* A PDF shows its own first page, on the strip and in the viewer, cut to the shape the
    file says its page is — so zooming out lands on the page rather than on a letterbox. */
-ok(/function pdfPageAR/.test(app), "the page's shape is read out of the PDF's own MediaBox");
-ok(/const LETTER_AR/.test(app), "with US Letter to fall back on, which a receipt usually is");
+/* The reader inside a frame draws a page at its natural size, so the frame has to be
+   the page — one page wide and the whole document tall — and the fit is to the width,
+   because a page is only as wide as it is and the next one is below it. */
+ok(/function pdfShape/.test(app), "the page size and the page count are read off the file");
+ok(/MediaBox/.test(app), "out of its own MediaBox");
+ok(/\/Count/.test(app), "and its page tree, or the pages counted one by one when it will not say");
 ok(/\.receiptthumb \.preview\{/.test(app), "the strip draws the PDF rather than naming it");
 ok(!/ICON\.doc|  doc:`/.test(app), "and the document mark it used to show is gone");
 ok(/function fitDocPreviews/.test(app), "each preview is scaled to the strip showing it");
 ok(/fitDocPreviews\(\)/.test(app.slice(app.indexOf("function repaintTxnSheet"), app.indexOf("function wireTxnSheet"))),
    "including on the one path that repaints without a render");
-ok(/const docSize = ar =>/.test(app), "and the frame is cut to the page's shape");
+ok(/const docSize = d =>[\s\S]{0,140}p\.h \* p\.n/.test(app),
+   "the frame is one page wide and the whole document tall");
+const fi = app.slice(app.indexOf("function fitIt(){"), app.indexOf("function fitIt(){") + 1100);
+ok(/toWidth \? \(b\.W \/ nw\)/.test(fi), "a document is fitted to the width and scrolled down");
+ok(/if\(fixed\)\{ img\.style\.width/.test(fi),
+   "and the frame is made that size inside the fitting, so a late answer moves both");
+ok(/function readShapeLate/.test(app),
+   "a receipt filed before any of this asks the file itself, once, and writes it down");
 const rz2 = app.slice(app.indexOf("function wireReceiptZoom"), app.indexOf("/* ---------- recording one"));
 ok(/img\.style\.width = fixed\.w/.test(rz2),
    "the frame is made that size too, or the fitting and the element would disagree");
-ok(/receiptAR/.test(app), "and the shape is kept on the record rather than re-read every time");
+ok(/receiptDoc/.test(app), "the shape is kept on the record rather than re-read every time");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

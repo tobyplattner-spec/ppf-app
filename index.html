@@ -368,9 +368,9 @@ label{display:block;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-t
 .receiptview iframe{
   position:absolute;left:0;top:0;transform-origin:0 0;border:0;display:block;
   background:#fff;pointer-events:none;
-  /* A page of Letter, until the wiring measures the real one. A frame with no size at
-     all falls back to 300x150, which would show as a wrong shape for a frame or two. */
-  width:1082px;height:1400px;
+  /* A page of Letter, until the wiring reads the real one. A frame with no size at all
+     falls back to 300x150, which would show as a wrong shape for a frame or two. */
+  width:612px;height:792px;
 }
 /* Something of ours for the fingers to land on. A touch that lands on a frame belongs
    to the frame and never reaches us, so the frame is covered over. */
@@ -1914,7 +1914,7 @@ async function takeReceipt(t, file){
   if(!blob) return;
   /* Kept with the record rather than worked out afresh every time it is drawn: a
      picture carries its own size, and this is a PDF's answer to that. */
-  t.receiptAR = isPdfBlob(blob) ? await pdfPageAR(blob) : null;
+  t.receiptDoc = isPdfBlob(blob) ? await pdfShape(blob) : null;
   try{ await Receipts.write(t, blob); }
   catch(e){ return toast("Could not save the receipt: " + e.message); }
   markDirty(); saveNow();
@@ -3221,7 +3221,7 @@ function txnView(x){
     <div class="between" style="margin-top:24px"><h3 style="margin:0">Receipt</h3>
       <span class="small muted">${rc ? "kept with this entry" : "none yet"}</span></div>
     ${rc
-      ? receiptThumb("tvReceipt", rc, isPdfRef(x.receipt), "Tap to view", x.counterparty, x.receiptAR)
+      ? receiptThumb("tvReceipt", rc, isPdfRef(x.receipt), "Tap to view", x.counterparty, x.receiptDoc)
       : `<button class="btn wide" id="tvAddReceipt" style="margin-top:10px">Add a Receipt</button>`}
     ${receiptPicker("tvReceiptFile")}`;
 
@@ -3260,11 +3260,11 @@ function txnView(x){
 function receiptShowing(open){
   if(draftTxn) return receiptFor === "draft" && draftTxn.receiptUrl
     ? { src: draftTxn.receiptUrl, who: draftTxn.counterparty, when: draftTxn.date,
-        pdf: isPdfBlob(draftTxn.receipt), ar: draftTxn.receiptAR, draft: true }
+        pdf: isPdfBlob(draftTxn.receipt), doc: draftTxn.receiptDoc, draft: true }
     : null;
   return open && receiptFor === open.id && Receipts.url(open)
     ? { src: Receipts.url(open), who: open.counterparty, when: open.date,
-        pdf: isPdfRef(open.receipt), ar: open.receiptAR, tx: open }
+        pdf: isPdfRef(open.receipt), doc: open.receiptDoc, tx: open }
     : null;
 }
 /* Fitted to the box to begin with, because the first question is always which receipt
@@ -3281,7 +3281,7 @@ function receiptPanel(r){
     sub: `${esc(r.who || "")}${r.when ? " · " + fmtDate(r.when) : ""}`,
     body: `<div class="receiptview" id="rcView" ${box}>
         ${r.pdf
-          ? `<iframe id="rcDoc" src="${esc(r.src || "")}${PDF_VIEW}" data-ar="${sane(Number(r.ar) || 0)}"
+          ? `<iframe id="rcDoc" src="${esc(r.src || "")}${PDF_VIEW}" ${docAttr(r.doc)}
                      title="Receipt from ${esc(r.who || "")}" scrolling="no" tabindex="-1"></iframe>
              <div class="grab"></div>`
           : `<img id="rcImg" src="${esc(r.src || "")}" alt="Receipt from ${esc(r.who || "")}" draggable="false">`}
@@ -3303,7 +3303,8 @@ function receiptPanel(r){
    picture is never allowed smaller than fits, and never dragged so far that the box
    shows anything but picture. */
 const RC_MAX_ZOOM = 10;
-function wireReceiptZoom(view, img, fixed){
+const S = {};     /* the one live viewer's way back in, for a shape that arrives late */
+function wireReceiptZoom(view, img, fixed, toWidth){
   let nw = 0, nh = 0, fit = 1, s = 1, x = 0, y = 0;
   const box = () => ({ W: view.clientWidth, H: view.clientHeight });
   /* Nothing that starts inside this box scrolls anything, whatever it lands on and
@@ -3320,22 +3321,26 @@ function wireReceiptZoom(view, img, fixed){
   /* Fit it, and remember what fitting means — that is the floor every pinch stops at,
      so pinching out always lands back on the whole receipt rather than somewhere near it. */
   function fitIt(){
+    /* A frame is made the size the fitting below works in, every time — not once on the
+       way in. A shape read off the file after the frame was built changes both, and
+       changing only one leaves the picture sitting off its own edge. */
+    if(fixed){ img.style.width = fixed.w + "px"; img.style.height = fixed.h + "px"; }
     nw = fixed ? fixed.w : img.naturalWidth;
     nh = fixed ? fixed.h : img.naturalHeight;
     const b = box();
     if(!nw || !nh || !b.W || !b.H) return;
-    fit = Math.min(b.W / nw, b.H / nh);
+    /* A photograph is fitted whole, because the whole of it is the receipt. A document
+       is fitted to the width and scrolled down, because the page is only as wide as it
+       is and a second page is below the first — which is what you asked of paper. */
+    fit = toWidth ? (b.W / nw) : Math.min(b.W / nw, b.H / nh);
     s = fit; x = 0; y = 0;
     paint();
   }
-  /* A frame has no size of its own, so it is given the page's — the same shape the
-     fitting below works in, or the two would disagree and the picture would sit off its
-     own edge. A photograph brings its own size and only has to be waited for. */
-  if(fixed){
-    img.style.width = fixed.w + "px";
-    img.style.height = fixed.h + "px";
-    fitIt();
-  }
+  /* The shape can arrive after the frame does, for a receipt filed before any of this
+     knew about pages. Re-sizing is re-fitting, and nothing else changes. */
+  S.resize = next => { fixed = next; fitIt(); };
+  /* A frame is ready the moment it exists; a photograph has to be waited for. */
+  if(fixed) fitIt();
   else if(img.complete && img.naturalWidth) fitIt();
   else img.onload = fitIt;
 
@@ -3443,7 +3448,24 @@ function wireReceiptPanel(r){
      picture out from under the fingers moving it. */
   const doc = $("#rcDoc");
   if(view && img) wireReceiptZoom(view, img);
-  else if(view && doc) wireReceiptZoom(view, doc, docSize(doc.dataset.ar));
+  else if(view && doc){
+    wireReceiptZoom(view, doc, docSize(docFrom(doc)), true);
+    /* A PDF filed before the app read page sizes has none written down, so it opens as
+       one page of Letter and then asks the file itself. The answer is kept on the
+       record, so it is asked once. */
+    if(!r.doc) readShapeLate(r, doc);
+  }
+}
+async function readShapeLate(r, doc){
+  try{
+    const shape = await pdfShape(await (await fetch(r.src)).blob());
+    if(r.draft) draftTxn.receiptDoc = shape; else if(r.tx) r.tx.receiptDoc = shape;
+    if($("#rcDoc") === doc){
+      doc.dataset.doc = `${shape.w},${shape.h},${shape.n}`;
+      if(S.resize) S.resize(docSize(shape));
+    }
+    if(r.tx) markDirty();
+  }catch(e){ /* it stays a page of Letter, which is what it almost always is */ }
 }
 
 /* ---------- recording one ---------- */
@@ -3588,7 +3610,7 @@ function blankTxn(kind = "order", carry = {}){
     counterparty: carry.counterparty || "", description: "", amount: "", units: "",
     category: "", shipping: "", tax: "", lines: [{ name:"", qty:1, price:"" }],
     receipt: carry.receipt || null, receiptUrl: carry.receiptUrl || null,
-    receiptAR: carry.receiptAR || null };
+    receiptDoc: carry.receiptDoc || null };
 }
 function discardTxnDraft(){
   /* Only the preview is let go here; a draft that was saved has already had its blob
@@ -3601,10 +3623,10 @@ function discardTxnDraft(){
 async function draftTakeReceipt(file){
   const blob = await receiptBlob(file);
   if(!blob) return;
-  const ar = isPdfBlob(blob) ? await pdfPageAR(blob) : null;
+  const shape = isPdfBlob(blob) ? await pdfShape(blob) : null;
   draftDropReceipt();
   draftTxn.receipt = blob; draftTxn.receiptUrl = URL.createObjectURL(blob);
-  draftTxn.receiptAR = ar;
+  draftTxn.receiptDoc = shape;
   render();
   toast(`Receipt ready \u00b7 ${kb(blob)}`);
 }
@@ -3621,35 +3643,60 @@ const isPdfBlob = b => !!b && b.type === PDF_MIME;
    be one — the rest of the file is compressed and none of our business. A file that
    will not give up its MediaBox falls back to US Letter, which a receipt almost always
    is, and the worst that costs is the letterbox we had before. */
-const LETTER_AR = 612 / 792;
-const sane = ar => (ar > 0.2 && ar < 5) ? ar : LETTER_AR;
-async function pdfPageAR(blob){
+/* The reader inside a frame draws the page at its own natural size — a point to a
+   pixel, anchored top left — rather than fitting it to whatever frame it was given. So
+   the frame has to BE the page: a page of Letter in a frame 1082 wide filled a little
+   over half of it and left white down the side, which is what this is for.
+
+   Three numbers, then: how wide and how tall one page is in points, and how many pages
+   there are, so the frame is one page wide and the whole document tall. Read as bytes
+   off the front of the file. This is not a PDF reader and has no wish to be one; what
+   it cannot make out falls back to a single page of US Letter, which a receipt almost
+   always is. */
+const LETTER = { w: 612, h: 792, n: 1 };
+const okNum = (v, lo, hi, fallback) => (v >= lo && v <= hi) ? v : fallback;
+async function pdfShape(blob){
   try{
     const head = new Uint8Array(await blob.slice(0, 300000).arrayBuffer());
     const txt = new TextDecoder("latin1").decode(head);
     const m = /\/MediaBox\s*\[\s*(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)/.exec(txt);
-    if(!m) return LETTER_AR;
-    return sane(Math.abs(+m[3] - +m[1]) / Math.abs(+m[4] - +m[2]));
-  }catch(e){ return LETTER_AR; }
+    /* The page tree says how many; failing that, count the pages themselves. /Page is
+       also the front of /Pages, so the next character has to not be an s. */
+    const c = /\/Type\s*\/Pages[\s\S]{0,400}?\/Count\s+(\d+)/.exec(txt) || /\/Count\s+(\d+)/.exec(txt);
+    const n = c ? +c[1] : (txt.match(/\/Type\s*\/Page[^s]/g) || []).length;
+    return {
+      w: okNum(m ? Math.abs(+m[3] - +m[1]) : 0, 50, 5000, LETTER.w),
+      h: okNum(m ? Math.abs(+m[4] - +m[2]) : 0, 50, 5000, LETTER.h),
+      n: okNum(n, 1, 60, 1),
+    };
+  }catch(e){ return { ...LETTER }; }
 }
+/* Written into the record as three numbers and read back the same way, so a receipt
+   filed before any of this knew about pages still opens — as one page of Letter, until
+   the viewer reads the real answer off the file and writes it down. */
+const docOf = d => (d && d.w && d.h) ? { w: d.w, h: d.h, n: d.n || 1 } : { ...LETTER };
+const docSize = d => { const p = docOf(d); return { w: p.w, h: p.h * p.n }; };
 function draftDropReceipt(){
   if(draftTxn && draftTxn.receiptUrl) URL.revokeObjectURL(draftTxn.receiptUrl);
-  if(draftTxn){ draftTxn.receipt = null; draftTxn.receiptUrl = null; draftTxn.receiptAR = null; }
+  if(draftTxn){ draftTxn.receipt = null; draftTxn.receiptUrl = null; draftTxn.receiptDoc = null; }
 }
 /* Filed once the entry has a number. Recording it is the thing that mattered, so a
    receipt that will not write says so and leaves the transaction standing. */
-async function fileReceipt(tx, blob, ar){
+async function fileReceipt(tx, blob, shape){
   if(!blob) return;
-  tx.receiptAR = ar || null;
+  tx.receiptDoc = shape || null;
   try{ await Receipts.write(tx, blob); }
   catch(e){ return toast("Recorded, but the receipt did not save: " + e.message); }
   markDirty(); saveNow(); render();
 }
 /* The one strip both sheets show, and the one picker both of them open. A PDF has no
    picture to shrink into a strip, so it says what it is instead. */
-function receiptThumb(id, src, pdf, words, who, ar){
+const docAttr = d => { const p = docOf(d); return `data-doc="${p.w},${p.h},${p.n}"`; };
+const docFrom = el => { const [w,h,n] = String(el.dataset.doc || "").split(",").map(Number);
+                        return docOf({ w, h, n }); };
+function receiptThumb(id, src, pdf, words, who, doc){
   const face = pdf
-    ? `<iframe class="preview" data-ar="${sane(Number(ar) || 0)}" tabindex="-1" scrolling="no"
+    ? `<iframe class="preview" ${docAttr(doc)} tabindex="-1" scrolling="no"
                aria-hidden="true" title="" src="${esc(src)}${PDF_VIEW}"></iframe>`
     : `<img src="${esc(src)}" alt="Receipt from ${esc(who || "")}">`;
   return `<button class="receiptthumb${pdf ? " doc" : ""}" id="${id}" style="margin-top:10px"
@@ -3657,20 +3704,17 @@ function receiptThumb(id, src, pdf, words, who, ar){
       ${face}<span class="more">${esc(words)}</span>
     </button>`;
 }
-/* The frame is drawn tall enough that there is room to zoom into it before it softens,
-   and cut to the shape of the page so that zooming out lands on the page and not on a
-   letterbox around it. */
 const PDF_VIEW = "#toolbar=0&navpanes=0&scrollbar=0&view=Fit";
-const RC_DOC_H = 1400;
-const docSize = ar => ({ w: Math.round(RC_DOC_H * sane(Number(ar) || 0)), h: RC_DOC_H });
-/* A frame has no size of its own to be laid out by, so it is given one and then scaled
-   to the width of whatever is showing it. Done after a render rather than in the markup
-   because only then is there a strip to measure. */
+/* A frame has no size of its own to be laid out by, so it is given the document's — one
+   page wide and the whole of it tall — and then scaled to the width of whatever is
+   showing it. Done after a render rather than in the markup, because only then is there
+   a strip to measure. The strip shows the top of the first page, which is the part that
+   says which receipt this is. */
 function fitDocPreviews(){
   document.querySelectorAll(".receiptthumb .preview").forEach(f => {
     const w = f.parentElement.clientWidth;
     if(!w) return;
-    const d = docSize(f.dataset.ar);
+    const d = docSize(docFrom(f));
     f.style.width = d.w + "px";
     f.style.height = d.h + "px";
     f.style.transform = `scale(${w / d.w})`;
@@ -3684,7 +3728,7 @@ function draftReceiptRow(){
     <div class="between" style="margin:22px 0 0"><h3 style="margin:0">Receipt</h3>
       <span class="small muted">optional</span></div>
     ${t.receiptUrl
-      ? receiptThumb("t-rcThumb", t.receiptUrl, isPdfBlob(t.receipt), "Tap to view", t.counterparty, t.receiptAR)
+      ? receiptThumb("t-rcThumb", t.receiptUrl, isPdfBlob(t.receipt), "Tap to view", t.counterparty, t.receiptDoc)
       : `<button class="btn wide" id="t-rcAdd" style="margin-top:10px">Add a Receipt</button>`}
     ${receiptPicker("t-rcFile")}`;
 }
@@ -3769,7 +3813,7 @@ function wireTxnSheet(app){
     if(b.dataset.kind === t.kind) return;
     draftTxn = blankTxn(b.dataset.kind, { date: t.date, counterparty: t.counterparty,
                                           receipt: t.receipt, receiptUrl: t.receiptUrl,
-                                          receiptAR: t.receiptAR });
+                                          receiptDoc: t.receiptDoc });
     repaintTxnSheet();
   });
 
@@ -3822,9 +3866,9 @@ function wireTxnSheet(app){
         amount: amt/100, category: t.category || "Other", allocations: [],
         ...(u === null ? {} : { units: u }) };
       DB.transactions.push(tx);
-      const rc = t.receipt, rcAR = t.receiptAR;
+      const rc = t.receipt, rcDoc = t.receiptDoc;
       discardTxnDraft(); markDirty(); saveNow(); render();
-      await fileReceipt(tx, rc, rcAR);
+      await fileReceipt(tx, rc, rcDoc);
     };
   }
   paintTxn();
@@ -3900,12 +3944,12 @@ async function commitOrder(filled, ship, tax = 0){
   };
   DB.transactions.push(tx);
 
-  const rc = draftTxn.receipt, rcAR = draftTxn.receiptAR;
+  const rc = draftTxn.receipt, rcDoc = draftTxn.receiptDoc;
   discardTxnDraft();
   markDirty(); saveNow();
   toast(`${rows.length} plant${rows.length > 1 ? "s" : ""} added`);
   location.hash = "#/collection";
-  await fileReceipt(tx, rc, rcAR);
+  await fileReceipt(tx, rc, rcDoc);
 }
 /* ---------- property map ---------- */
 const live = p => !["Lost","Sold","Divided"].includes(p.status);
