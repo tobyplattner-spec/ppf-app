@@ -266,6 +266,26 @@ ok(/fitW \|\| computeFitW\(\)/.test(bm), "the paper is sized by how far out the 
 ok(/_baseW !== wide \|\| _baseH !== tall/.test(bm),
    "and cached on its height as well as its width, or the first guess at the pane's shape sticks");
 
+/* A PDF is moved by the same hand as a photograph, rather than left to the reader
+   inside its frame — which opened zoomed in, would not go back out, and handed every
+   swipe it could not use to the page behind. */
+ok(!/receiptview doc/.test(app), "a PDF sits in the same box as a picture, not one of its own");
+ok(!/\.receiptview\.doc\{/.test(app), "and the box that let its frame take the touches is gone");
+ok(/\.receiptview iframe\{[^}]*transform-origin/.test(app), "the frame is pushed about by the same transform");
+ok(/\.receiptview iframe\{[^}]*pointer-events:none/.test(app), "and takes no touches of its own");
+ok(/\.receiptview \.grab\{/.test(app), "something of ours is laid over it for the fingers to land on");
+ok(/const RC_DOC/.test(app), "the frame is given a page-sized canvas, since it has no size to offer");
+const rz = app.slice(app.indexOf("function wireReceiptZoom"), app.indexOf("/* ---------- recording one"));
+ok(/fixed \? fixed\.w : img\.naturalWidth/.test(rz), "one zoom serves a picture and a frame alike");
+ok(/addEventListener\("touchmove", e => e\.preventDefault\(\)/.test(rz),
+   "and nothing begun inside the box scrolls anything, whatever it lands on");
+
+/* Nothing in front of the user explains how any of it works. */
+ok(!/squeezed on the way in|kept for good|A PDF, kept whole|A PDF out of Files/.test(app),
+   "no blurb about squeezing or about what is done with a PDF");
+ok((app.match(/Pinch to zoom, drag to move/g) || []).length === 1,
+   "one hint, and it serves both kinds");
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
 })().catch(e => { console.error("HARNESS ERROR:", e); process.exit(2); });
