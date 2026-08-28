@@ -242,10 +242,16 @@ ok(!/\brender\(\);/.test(rk.replace(/return render\(\);/g, "")),
 const rcCss = app.slice(app.indexOf(".receiptview{"), app.indexOf(".receiptthumb.doc"));
 ok(/touch-action:none/.test(rcCss), "every finger on the receipt box goes to the pinch code");
 ok(/overflow:hidden/.test(rcCss), "the box does not scroll, so a drag cannot chain out of it");
-ok(/overscroll-behavior:contain/.test(app.slice(app.indexOf(".psbody{"), app.indexOf(".psbody{") + 200)),
+/* The base rule, not the receipt sheet's override of it — which now sorts first. */
+ok(/\n\.psbody\{[^}]*overscroll-behavior:contain/.test(app),
    "and no sheet's own scrolling reaches the page behind it");
 ok(/function wireReceiptZoom/.test(app), "the viewer pinches and drags");
-ok((app.match(/tall: true/g) || []).length === 2, "the recording sheet and the plant sheet are both full height");
+/* Every sheet you look at something in: recording one, the plant, the transaction, and
+   the receipt. All the same height, so moving between them never resizes the panel. */
+ok((app.match(/tall: true/g) || []).length === 4, "all four sheets are full height");
+ok(/#rcBack \.receiptview\{flex:1 1 auto;min-height:0\}/.test(app),
+   "and the receipt takes the height its panel has left, rather than a share worked out in advance");
+ok(!/rcBoxH/.test(app), "the fixed height it used to be given is gone");
 
 /* A sheet is pulled closed by its handle or its header, and nothing behind one moves.
    Both of those are the same fact: the browser must not read a drag on those parts as

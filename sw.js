@@ -5,13 +5,13 @@
 
    One face now, at the root. m.html is a redirect kept for home-screen icons added when
    the app lived there; it is in the shell so those still open with no signal. */
-/* Bumped for reading a PDF whole rather than the front of it: both faces moved, and a
-   shell still holding yesterday's copy would go on serving them. A new name empties the
-   old one on activate rather than trusting network-first to catch every file past.
+/* Bumped for the receipt viewer taking the whole height: both faces moved, and a shell
+   still holding yesterday's copy would go on serving them. A new name empties the old
+   one on activate rather than trusting network-first to catch every file past.
 
    Everything named here has to exist: addAll is all-or-nothing, and one missing file
    fails the install and leaves the device with no shell at all rather than an old one. */
-const CACHE = "ppf-v16";
+const CACHE = "ppf-v17";
 const SHELL = [
   "./", "./index.html", "./m.html", "./store.js",
   "./manifest.webmanifest",
