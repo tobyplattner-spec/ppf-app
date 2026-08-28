@@ -3219,7 +3219,7 @@ function txnView(x){
   const rc = Receipts.url(x);
   const receipt = `
     <div class="between" style="margin-top:24px"><h3 style="margin:0">Receipt</h3>
-      <span class="small muted">${rc ? "kept with this entry" : "none yet"}</span></div>
+      <span class="small muted">${rc ? "" : "none yet"}</span></div>
     ${rc
       ? receiptThumb("tvReceipt", rc, isPdfRef(x.receipt), "Tap to view", x.counterparty, x.receiptDoc)
       : `<button class="btn wide" id="tvAddReceipt" style="margin-top:10px">Add a Receipt</button>`}
@@ -3450,22 +3450,27 @@ function wireReceiptPanel(r){
   if(view && img) wireReceiptZoom(view, img);
   else if(view && doc){
     wireReceiptZoom(view, doc, docSize(docFrom(doc)), true);
-    /* A PDF filed before the app read page sizes has none written down, so it opens as
-       one page of Letter and then asks the file itself. The answer is kept on the
-       record, so it is asked once. */
-    if(!r.doc) readShapeLate(r, doc);
+    /* It opens on what is written down and then asks the file itself, every time. Not
+       only when nothing is written down: what was written down may have been read by a
+       worse reader than today's — the Adelman order was filed as one page by a reader
+       that only looked at the front of it — and a record that can only be corrected by
+       hand is a record that stays wrong. Reading a file already on this device costs
+       nothing, and an answer that agrees writes nothing. */
+    readShapeLate(r, doc);
   }
 }
 async function readShapeLate(r, doc){
   try{
     const shape = await pdfShape(await (await fetch(r.src)).blob());
-    if(r.draft) draftTxn.receiptDoc = shape; else if(r.tx) r.tx.receiptDoc = shape;
+    const had = docOf(r.doc);
+    if(r.doc && had.w === shape.w && had.h === shape.h && had.n === shape.n) return;
+    if(r.draft) draftTxn.receiptDoc = shape;
+    else if(r.tx){ r.tx.receiptDoc = shape; markDirty(); }
     if($("#rcDoc") === doc){
       doc.dataset.doc = `${shape.w},${shape.h},${shape.n}`;
       if(S.resize) S.resize(docSize(shape));
     }
-    if(r.tx) markDirty();
-  }catch(e){ /* it stays a page of Letter, which is what it almost always is */ }
+  }catch(e){ /* it stays as it was, which is a page of Letter at worst */ }
 }
 
 /* ---------- recording one ---------- */
@@ -3655,10 +3660,25 @@ const isPdfBlob = b => !!b && b.type === PDF_MIME;
    always is. */
 const LETTER = { w: 612, h: 792, n: 1 };
 const okNum = (v, lo, hi, fallback) => (v >= lo && v <= hi) ? v : fallback;
+/* The whole file, because a PDF does not promise to say anything early. The Adelman
+   order keeps its page tree past 300kB — the pages, the /Count and the /MediaBox all
+   sit behind the content streams — so reading the front of it found one page where
+   there were two, and the second was unreachable.
+
+   A receipt is small enough to read whole. Anything unreasonably large is read at both
+   ends instead, which is where a PDF keeps its structure. */
+const PDF_END = 3 * 1024 * 1024;
+async function pdfBytes(blob){
+  if(blob.size <= PDF_END * 2) return new Uint8Array(await blob.arrayBuffer());
+  const head = new Uint8Array(await blob.slice(0, PDF_END).arrayBuffer());
+  const tail = new Uint8Array(await blob.slice(blob.size - PDF_END).arrayBuffer());
+  const both = new Uint8Array(head.length + tail.length);
+  both.set(head); both.set(tail, head.length);
+  return both;
+}
 async function pdfShape(blob){
   try{
-    const head = new Uint8Array(await blob.slice(0, 300000).arrayBuffer());
-    const txt = new TextDecoder("latin1").decode(head);
+    const txt = new TextDecoder("latin1").decode(await pdfBytes(blob));
     const m = /\/MediaBox\s*\[\s*(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)/.exec(txt);
     /* The page tree says how many; failing that, count the pages themselves. /Page is
        also the front of /Pages, so the next character has to not be an s. */
