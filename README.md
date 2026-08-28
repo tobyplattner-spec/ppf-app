@@ -92,6 +92,28 @@ and keeps what comes back, so `sun.html` opens without a signal once it has been
 with one. It is **not** in `SHELL` on purpose: that list is all-or-nothing on install, and
 a proof of concept has no business being able to leave the farm app with no shell.
 
+## The screen is re-drawn, and it has to stay still while it is
+
+Every change re-builds the whole screen out of the records — a hundred times an
+afternoon, under taps that meant to change one line. That is what keeps the screen and
+the file the same thing, and it is not going anywhere. But everything the browser was
+holding on the app's behalf goes with the old markup: how far a list was scrolled, where
+the caret was, how far along a rail of chips had been pushed, and the fact that an open
+sheet was already open — so it slid up from the bottom edge again under every touch.
+
+So `render()` lifts all of that out before the re-draw and puts it back after, in the
+same frame, before anything is painted. A sheet that was already up is marked so it does
+not arrive twice; one that has gone is moved onto the body to finish going down over a
+screen that is free to be whatever it now is; one whose contents changed height is walked
+to its new height rather than jumping there. Nothing in that layer decides anything — it
+only carries. Add a `render()` call anywhere and it is carried for you.
+
+The speeds and the curves are five custom properties at the top of the stylesheet, so
+nothing has to guess: `--t-press` for a press letting go, `--t-state` for something
+changing under your eye, `--t-sheet` for something arriving or leaving, and `--ease-out`
+and `--ease-in` for entering and leaving, which are deliberately not the same curve. A
+phone set to keep still is obeyed everywhere at once, in one media query.
+
 ## Working on it
 
     node test-seam.js

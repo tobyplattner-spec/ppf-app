@@ -39,6 +39,26 @@
      tallest on any iPhone, so that is as far as this ever needs to reach. */
   --safe-b:min(env(safe-area-inset-bottom,0px),34px);
   --safe-t:env(safe-area-inset-top,0px);
+  /* ---- how this app moves ----
+     Three speeds and two curves, named once so nothing has to guess. A press answers
+     the instant it is felt and lets go over --t-press; a thing that changes state under
+     your eye takes --t-state; a thing that arrives or leaves takes --t-sheet.
+     --ease-out is what a thing entering does — quick off the mark, settling in; --ease-in
+     is what a thing leaving does, and it is deliberately not the same curve, because a
+     sheet that leaves the way it arrived reads as a rewind rather than a dismissal. */
+  --t-press:.16s;
+  --t-state:.2s;
+  --t-sheet:.3s;
+  --ease-out:cubic-bezier(.22,.68,.36,1);
+  --ease-in:cubic-bezier(.4,.02,.86,.3);
+}
+/* Nothing here is load-bearing: every rule below moves something that is already where
+   it belongs. So a phone told to keep still is simply obeyed, everywhere, at once. */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{
+    animation-duration:.001ms !important; animation-delay:0s !important;
+    transition-duration:.001ms !important; transition-delay:0s !important;
+  }
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
@@ -90,12 +110,9 @@ header h1{
   font-size:clamp(10.5px,3.35vw,14px);letter-spacing:.085em;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
-/* On the narrowest phones the state pill gives up its word and keeps its dot, which
-   is the half that was carrying the meaning anyway. */
+/* On the narrowest phones the tracking comes in a little, which buys the last few
+   pixels. The state pill gives up its word too, below with the rest of the pill. */
 @media (max-width:369px){
-  .statebtn{padding:0;width:32px;justify-content:center}
-  .statebtn #fileState{display:none}
-  /* And the tracking comes in a little, which buys the last few pixels. */
   header{gap:8px}
   header h1{letter-spacing:.05em}
 }
@@ -104,12 +121,26 @@ main{flex:1 1 auto;padding:16px var(--pad) calc(var(--tabh) + var(--safe-b) + 26
 /* The state pill is the one way into the data sheet: what file this is, whether it
    is written yet, and how to send it back where it came from. */
 .statebtn{
-  flex:none;display:inline-flex;align-items:center;gap:7px;
+  flex:none;display:inline-flex;align-items:center;
   background:rgba(253,249,247,.12);border:1px solid rgba(253,249,247,.22);
   color:var(--cream);border-radius:20px;padding:6px 11px;font-size:12px;font-weight:700;
-  letter-spacing:.04em;text-transform:uppercase;min-height:32px;
+  letter-spacing:.04em;text-transform:uppercase;min-height:32px;min-width:32px;
+  justify-content:center;
+  transition:background-color var(--t-press) var(--ease-out),
+             border-color var(--t-press) var(--ease-out),
+             padding var(--t-state) var(--ease-out);
 }
-.statebtn:active{background:rgba(253,249,247,.24)}
+.statebtn:active{background:rgba(253,249,247,.24);transition-duration:0s}
+/* The word is set beside the dot by its own margin rather than by the flex gap, so the
+   two can be given up together and the pill can close over the space they leave. A gap
+   cannot be animated away; a margin and a width can — and the pill loses its word on
+   every single save, so a hard jump here would twitch the header of every screen in the
+   app, all afternoon. */
+.statebtn #fileState{
+  display:block;margin-left:7px;max-width:9em;overflow:hidden;white-space:nowrap;
+  transition:max-width var(--t-state) var(--ease-out),opacity var(--t-state) var(--ease-out),
+             margin-left var(--t-state) var(--ease-out);
+}
 /* The sandbox says so on the bar, in every screen, because the one thing that must
    never happen is typing into it believing it is the farm — or the other way about. */
 .sandtag{
@@ -118,9 +149,14 @@ main{flex:1 1 auto;padding:16px var(--pad) calc(var(--tabh) + var(--safe-b) + 26
 }
 body.sandbox .topbar,body.sandbox header{background:#4A3A3E}
 .statebtn.hide{display:none}
-/* Nothing waiting: the dot alone, and the wordmark gets the room back. */
-.statebtn.quiet{padding:0;width:32px;justify-content:center}
-.statebtn.quiet #fileState{display:none}
+/* Nothing waiting: the dot alone, and the wordmark gets the room back. The narrowest
+   phones never have the room in the first place, so there the word never comes. */
+.statebtn.quiet{padding:0}
+.statebtn.quiet #fileState{max-width:0;opacity:0;margin-left:0}
+@media (max-width:369px){
+  .statebtn{padding:0}
+  .statebtn #fileState{max-width:0;opacity:0;margin-left:0}
+}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--graphite-60);flex:none}
 .dot.ok{background:#7FA663} .dot.dirty{background:var(--rose)}
 
@@ -145,6 +181,29 @@ body.sandbox .topbar,body.sandbox header{background:#4A3A3E}
 .tabbar.hide{display:none}
 /* Nothing open yet: no tabs to show, so the page keeps its own foot. */
 body.nofile main{padding-bottom:44px}
+
+/* ---------- how a tap answers ---------- */
+/* Every surface in the app that lights up under a thumb lights up at once and fades
+   back over --t-press. Instant on the way in is the whole point: a press that eases in
+   reads as lag, and on a phone lag reads as a tap that did not register. Easing only on
+   the way out is what makes the same press feel considered rather than abrupt. */
+.btn,.li,.todo,.fchip,.chip,.tab,.psx,.fab,.statebtn,.rowx,.pickback,
+.avatar,.receiptthumb,.seg button,.dot,.countpill,.pill{
+  transition:background-color var(--t-press) var(--ease-out),
+             border-color var(--t-press) var(--ease-out),
+             color var(--t-press) var(--ease-out),
+             box-shadow var(--t-press) var(--ease-out);
+}
+.btn:active,.li:active,.todo:active,.fchip:active,.chip:active,.tab:active,.psx:active,
+.fab:active,.statebtn:active,.rowx:active,.pickback:active,.avatar.tap:active,
+.receiptthumb:active,.seg button:active{transition-duration:0s}
+/* The one exception: a tab is not pressed so much as arrived at, and the tint that says
+   where you are should travel at the speed of the screen change rather than of a press. */
+.tab{transition:color var(--t-state) var(--ease-out),background-color var(--t-press) var(--ease-out)}
+.tab:active{transition-duration:0s}
+/* A chip lifted out of the tray dims rather than blinking out. */
+.chip{transition:opacity var(--t-state) var(--ease-out),background-color var(--t-press) var(--ease-out),
+      border-color var(--t-press) var(--ease-out)}
 
 /* ---------- controls ---------- */
 .btn{
@@ -174,6 +233,8 @@ input,select,textarea{
      its grid track wider than the column it was given and the pair walks off the
      screen edge, so it is told plainly that it may be as narrow as its share. */
   min-width:0;
+  /* The rose ring comes up under the caret rather than snapping on with it. */
+  transition:border-color var(--t-state) var(--ease-out),box-shadow var(--t-state) var(--ease-out);
 }
 select{
   padding-right:34px;
@@ -202,8 +263,11 @@ label{display:block;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-t
 .fieldrow.pair > div{grid-column:auto !important}
 
 /* ---------- cards & lists ---------- */
-.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;
+      transition:border-color var(--t-state) var(--ease-out),
+                 box-shadow var(--t-state) var(--ease-out)}
 .card.flush{padding:0;overflow:hidden}
+/* The card being typed into wears a rose ring, and it grows on rather than blinking. */
 .card.editing{border-color:var(--rose);box-shadow:0 0 0 3px var(--rose-tint)}
 
 /* The list row is the workhorse of this edition: a lead line, a quieter line under it,
@@ -443,16 +507,32 @@ td.r,th.r{text-align:right}
   position:fixed;inset:0;background:rgba(58,58,60,.45);z-index:60;
   display:flex;align-items:flex-end;justify-content:center;
   -webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);
-  animation:fadein .18s ease-out;
+  animation:fadein var(--t-sheet) var(--ease-out);
 }
 @keyframes fadein{from{opacity:0}to{opacity:1}}
-@keyframes rise{from{transform:translateY(26px)}to{transform:translateY(0)}}
+@keyframes fadeout{to{opacity:0}}
+/* A sheet comes up from under the bottom edge and goes back down under it. It used to
+   arrive from 26px below, which at speed is not an arrival but a twitch: the eye reads
+   a short hop as something settling wrong rather than as something being presented. Its
+   own height is the honest distance, and --pull lets a sheet that is already part way
+   down under a thumb leave from exactly where the thumb left it rather than snapping
+   back to nought first. */
+@keyframes rise{from{transform:translateY(100%)}to{transform:translateY(0)}}
+@keyframes sink{from{transform:translateY(var(--pull,0px))}to{transform:translateY(100%)}}
 .pspanel{
   background:var(--card);border-radius:20px 20px 0 0;width:100%;
   max-height:92vh;display:flex;flex-direction:column;
   box-shadow:0 -8px 40px rgba(58,58,60,.3);
-  animation:rise .22s cubic-bezier(.22,.68,.36,1);
+  animation:rise var(--t-sheet) var(--ease-out);
 }
+/* A sheet that was already open and is only being re-drawn does not arrive again. The
+   app rebuilds the screen under every tap, so without this the sheet slid up from the
+   bottom edge each time a field inside it was touched. */
+.psback.nofx,.psback.nofx .pspanel,.psback.nofx .askcard{animation:none}
+/* On the way out: the ground fades, the sheet goes back down where it came from, and
+   nothing under either can be tapped while they do it. */
+.psback.closing{animation:fadeout var(--t-sheet) var(--ease-in) forwards;pointer-events:none}
+.psback.closing .pspanel{animation:sink var(--t-sheet) var(--ease-in) forwards}
 @supports (height:100dvh){ .pspanel{max-height:92dvh} }
 /* A panel that is always its full height rather than the height of what is in it.
    Most sheets should hug their contents; the one that records a transaction should
@@ -497,20 +577,45 @@ td.r,th.r{text-align:right}
   background:var(--card);border-radius:18px;width:100%;max-width:420px;
   margin:0 auto calc(var(--tabh) + var(--safe-b) + 14px);
   padding:16px 18px;box-shadow:0 -8px 40px rgba(58,58,60,.3);
-  animation:rise .2s cubic-bezier(.22,.68,.36,1);
+  animation:pop var(--t-state) var(--ease-out);
 }
+/* One question, floating clear of the bottom edge — so it is not a sheet and does not
+   travel like one. It comes up a short way and goes back the same way. */
+@keyframes pop{from{transform:translateY(14px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes unpop{to{transform:translateY(14px);opacity:0}}
+.psback.closing .askcard{animation:unpop var(--t-state) var(--ease-in) forwards}
 .askcard p{margin:0 0 14px}
 .askcard .acts{display:flex;justify-content:flex-end;gap:10px}
 
 /* ---------- toast ---------- */
+/* Up into place and back down out of it, on the two curves everything else uses: a
+   little quicker arriving than leaving, which is what makes a word that appears on its
+   own read as an answer rather than as a flash. */
 .toast{
   position:fixed;left:50%;bottom:calc(var(--tabh) + var(--safe-b) + 18px);
-  transform:translateX(-50%) translateY(8px);
+  transform:translateX(-50%) translateY(10px) scale(.97);
   background:var(--graphite);color:var(--cream);padding:11px 18px;border-radius:22px;
-  font-size:14px;opacity:0;transition:opacity .2s,transform .2s;pointer-events:none;z-index:80;
+  font-size:14px;opacity:0;pointer-events:none;z-index:80;
+  transition:opacity var(--t-state) var(--ease-in),transform var(--t-state) var(--ease-in);
   max-width:calc(100vw - 32px);text-align:center;box-shadow:0 6px 20px rgba(58,58,60,.3);
 }
-.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.show{
+  opacity:1;transform:translateX(-50%) translateY(0) scale(1);
+  transition:opacity var(--t-press) var(--ease-out),transform var(--t-sheet) var(--ease-out);
+}
+
+/* ---------- one screen giving way to the next ---------- */
+/* Tapping a tab used to be a cut: the old screen was gone and the new one was simply
+   there, on the same frame. A fifth of a second of fade is enough to say that one thing
+   became another, and it is put on only when the route actually changes — the app
+   re-draws the screen under every tap, and a screen that flickered on each of those
+   would be far worse than the cut ever was.
+
+   Deliberately opacity and nothing else: #app holds the sheets and the floating button,
+   which are positioned against the window, and any transform here would quietly make
+   them positioned against #app instead. */
+@keyframes screenin{from{opacity:0}to{opacity:1}}
+#app.screenin{animation:screenin var(--t-state) var(--ease-out)}
 
 /* ---------- connect ---------- */
 .connect{margin:20px 0}
@@ -876,12 +981,21 @@ function wireSheetGestures(){
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", up);
         window.removeEventListener("pointercancel", cancel);
-        panel.style.transition = "transform .18s ease-out";
-        panel.style.transform = "";
         /* Far enough, or fast enough. A flick is as clear an answer as a long pull, and
            on a full-height sheet a long pull is most of the screen. */
         const quick = dy > 28 && dy / Math.max(1, Date.now() - t0) > 0.45;
-        if(answered && (dy > 90 || quick)) shut.click();
+        if(answered && (dy > 90 || quick)){
+          /* It is going. So it is not sprung back to nought first — the sheet carries on
+             down from where the thumb left it, which is the one thing that makes a pull
+             feel like it threw the sheet away rather than like it was refused and then
+             the sheet went anyway. --pull is where the closing animation starts from. */
+          panel.style.transition = "none";
+          panel.style.setProperty("--pull", dy + "px");
+          shut.click();
+          return;
+        }
+        panel.style.transition = "transform var(--t-state) var(--ease-out)";
+        panel.style.transform = "";
       };
       const up = () => done(true), cancel = () => done(false);
       window.addEventListener("pointermove", move);
@@ -1238,9 +1352,20 @@ function paintNav(){
   const h = location.hash || "#/dashboard";
   /* A plant belongs to its cultivar, so the Plants tab stays lit while one is open. */
   const at = h.startsWith("#/plant/") ? "#/collection" : h;
-  nav.innerHTML = ROUTES.map(([href,label,icon]) =>
-    `<a class="tab ${at.startsWith(href) ? "on" : ""}" href="${href}" aria-label="${label}"${
-      at.startsWith(href) ? ' aria-current="page"' : ""}>${tabIcon(icon)}</a>`).join("");
+  /* The five tabs never change, so they are drawn once and thereafter only lit and
+     unlit. Written out afresh on every re-draw — which is to say a hundred times an
+     afternoon, five icons at a time — they were new elements each time, and a new
+     element has no colour to travel from: the tint could only ever cut. */
+  const tabs = nav.children;
+  if(tabs.length !== ROUTES.length)
+    nav.innerHTML = ROUTES.map(([href,label,icon]) =>
+      `<a class="tab" href="${href}" aria-label="${label}">${tabIcon(icon)}</a>`).join("");
+  ROUTES.forEach(([href], i) => {
+    const t = tabs[i]; if(!t) return;
+    const on = at.startsWith(href);
+    t.classList.toggle("on", on);
+    if(on) t.setAttribute("aria-current", "page"); else t.removeAttribute("aria-current");
+  });
 }
 /* Bloom wears the farm's own mark instead of a drawn flower — the thing being recorded
    is a peony, and there is already one in the header. Borrowed from there rather than
@@ -1255,7 +1380,158 @@ function tabIcon(key){
     .replace('fill="#FDF9F7"', 'fill="currentColor"');
 }
 
+/* ---------- carrying the screen across a re-draw ---------- */
+/* The screen is built from the records every time anything changes, which is what keeps
+   it honest — but it means the whole of it is thrown away and written out again a
+   hundred times an afternoon, under taps that were meant to change one line. Everything
+   the browser was holding on the app's behalf goes with it: where the list was scrolled
+   to, where the caret was, how far along a rail of chips had been pushed, and — worst of
+   all — the fact that an open sheet was already open, so it slid up from the bottom edge
+   again under every touch.
+   None of that is state the app keeps, so it has to be lifted out before the re-draw and
+   put back after it. Nothing here decides anything; it only carries. */
+
+/* Which screen the last draw was of, so a re-draw of the same one can be told from a
+   move to another. */
+let drawnAt = null;
+
+/* A scroll box is found again by what it is and where it sits among its like. The
+   markup around it is rebuilt but the shape of the screen is not, so class and ordinal
+   name the same box before and after. A key that misses simply restores nothing, which
+   is exactly where the app stood before any of this. */
+function scrollBoxes(){
+  const seen = {};
+  const out = [];
+  /* Only the screen itself. A sheet on its way out has been moved onto the body to
+     finish its animation, and counting it here would shift every key after it. */
+  document.querySelectorAll("#app .psbody,#app .chips").forEach(el => {
+    const c = el.className;
+    const n = seen[c] = (seen[c] || 0) + 1;
+    out.push([c + ":" + n, el]);
+  });
+  return out;
+}
+/* The field under the caret, named by something that will exist again afterwards. */
+function focusKey(el){
+  if(!el || el === document.body) return null;
+  if(!el.closest || !el.closest("#app")) return null;
+  if(!/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return null;
+  if(el.id) return "#" + CSS.escape(el.id);
+  if(el.dataset.edit) return `[data-edit="${CSS.escape(el.dataset.edit)}"]`;
+  return null;
+}
+function takeUi(){
+  const sheets = new Map();
+  /* A sheet already on its way out is not open; it is furniture left behind to finish
+     its animation, and asking it to stay would keep it forever. */
+  document.querySelectorAll(".psback:not(.closing)").forEach(el => sheets.set(el.id, el));
+  const el = document.activeElement;
+  const key = focusKey(el);
+  const heights = new Map();
+  for(const [id, back] of sheets){
+    const panel = back.querySelector(".pspanel");
+    if(panel) heights.set(id, panel.offsetHeight);
+  }
+  return {
+    hash: drawnAt,
+    y: window.scrollY,
+    boxes: scrollBoxes().map(([k, b]) => [k, b.scrollTop, b.scrollLeft]),
+    sheets, heights,
+    focus: key && { key, start: sel(el, "selectionStart"), end: sel(el, "selectionEnd") },
+  };
+}
+
+/* A sheet stands on the bottom edge, so everything that changes its height moves its
+   top edge — and the top edge is where the title is and where a thumb is reaching. On
+   the bloom sheet that is every single line: pick a cultivar, a fresh empty line appears
+   under it, and the whole sheet used to jump fifty pixels up the screen with the field
+   you were aiming at. So the height it had is put back on and let go of over --t-state,
+   which keeps the foot where it is and walks the top to where it now belongs.
+   The height is only ever borrowed: it is handed back to the layout the moment it
+   arrives, and again on a timer in case the animation never runs at all. */
+function easeHeight(panel, from){
+  const to = panel.offsetHeight;
+  if(!from || !to || Math.abs(to - from) < 2) return;
+  /* Held while the panel is briefly the wrong size: a body that is about to be taller
+     than it will end up is a body whose scroll position the browser will trim to fit,
+     and it does not put it back on its own when the room returns. */
+  const body = panel.querySelector(".psbody");
+  const at = body ? body.scrollTop : 0;
+  panel.style.transition = "none";
+  panel.style.height = from + "px";
+  void panel.offsetHeight;
+  const release = () => {
+    if(panel.dataset.easing !== String(to)) return;   // another change has taken it over
+    delete panel.dataset.easing;
+    panel.style.height = "";
+    panel.style.transition = "";
+    if(body && at && body.scrollTop !== at) body.scrollTop = at;
+  };
+  panel.dataset.easing = String(to);
+  requestAnimationFrame(() => {
+    if(panel.dataset.easing !== String(to)) return;
+    panel.style.transition = "height var(--t-state) var(--ease-out)";
+    panel.style.height = to + "px";
+    panel.addEventListener("transitionend", e => { if(e.propertyName === "height") release(); }, { once:true });
+    setTimeout(release, 700);
+  });
+}
+/* Only a text box has a caret, and asking a number or a date for one throws. */
+function sel(el, which){ try{ return el[which]; }catch(e){ return null; } }
+
+function giveUiBack(was, hash){
+  /* Same screen: the browser was holding a scroll position that belongs to the screen
+     rather than to the markup, so it is handed straight back. Another screen: the top of
+     it. Either way it is settled here, between the markup being written and the frame
+     being painted, so neither is ever seen happening. */
+  const to = was.hash === hash ? was.y : 0;
+  if(window.scrollY !== to) window.scrollTo(0, to);
+
+  const now = new Map(scrollBoxes());
+  for(const [k, top, left] of was.boxes){
+    const b = now.get(k);
+    if(!b) continue;
+    if(top) b.scrollTop = top;
+    if(left) b.scrollLeft = left;
+  }
+
+  if(was.focus){
+    const f = document.querySelector("#app " + was.focus.key);
+    /* Only if it is not already there: re-focusing the field the caret is in would
+       scroll it into view a second time and, on a phone, flicker the keyboard. */
+    if(f && f !== document.activeElement){
+      f.focus({ preventScroll:true });
+      if(was.focus.start !== null && was.focus.start !== undefined)
+        try{ f.setSelectionRange(was.focus.start, was.focus.end); }catch(e){ /* no caret here */ }
+    }
+  }
+
+  /* A sheet that was already up does not come up again; one that has gone is given the
+     length of its own animation to go down, standing on the body so the re-drawn screen
+     underneath is free to be whatever it now is. */
+  const open = new Set();
+  document.querySelectorAll(".psback:not(.closing)").forEach(el => {
+    open.add(el.id);
+    if(!was.sheets.has(el.id)) return;
+    el.classList.add("nofx");
+    const panel = el.querySelector(".pspanel");
+    if(panel) easeHeight(panel, was.heights.get(el.id));
+  });
+  for(const [id, el] of was.sheets){
+    if(open.has(id)) continue;
+    el.classList.add("closing");
+    el.classList.remove("nofx");
+    document.body.appendChild(el);
+    el.addEventListener("animationend", () => el.remove(), { once:true });
+    /* A sheet whose animation never runs — the phone is set to keep still, or the tab
+       is in the background — must still be cleared away. */
+    setTimeout(() => el.remove(), 1200);
+  }
+  return open;
+}
+
 function render(){
+  const was = takeUi();
   paintNav(); paintFileState();
   const app = $("#app");
   const hash = location.hash || "#/dashboard";
@@ -1275,6 +1551,24 @@ function render(){
   /* The data sheet floats over whatever screen you were on, so it is appended last
      and never disturbs what is underneath it. */
   if(DB && dataOpen){ app.insertAdjacentHTML("beforeend", dataSheet()); wireDataSheet(); }
+
+  /* route() can settle on a different hash than it was given — #/map/<id> focuses and
+     then writes itself back to #/map — so what the screen is is asked after it is built.
+     Before there is a file there is no hash worth reading either: the way in is two
+     screens of its own, and the records arriving is the largest change of screen the
+     app ever makes. */
+  const at = DB ? (location.hash || "#/dashboard") : "connect:" + connectStep;
+  const open = giveUiBack(was, at);
+
+  /* One screen giving way to another is worth a fifth of a second; the same screen being
+     re-drawn is not, and a sheet arriving or leaving is already saying it for itself. */
+  app.classList.remove("screenin");
+  if(at !== drawnAt && !open.size && !was.sheets.size){
+    void app.offsetWidth;                       // so the same class can be put on twice running
+    app.classList.add("screenin");
+  }
+  drawnAt = at;
+
   wireSheetGestures();
   fitDocPreviews();
 }
@@ -1313,8 +1607,10 @@ window.addEventListener("hashchange", () => {
   if(!location.hash.startsWith("#/ledger")){ openTxn = null; armDelete = false; }
   if(!location.hash.startsWith("#/bloom")) discardBloomDraft();
   if(!location.hash.startsWith("#/map")) closeMapAsk();
-  /* A screen you have just arrived at should be at the top of itself. */
-  window.scrollTo(0, 0);
+  /* A screen you have just arrived at should be at the top of itself — done inside the
+     re-draw, once the new screen is standing there. Done here instead, as it was, the
+     screen you were leaving visibly snapped to its own top first and only then became
+     the other one: two movements for one tap. */
   render();
 });
 
@@ -3346,9 +3642,38 @@ function wireReceiptZoom(view, img, fixed, toWidth){
     s = fit; x = 0; y = 0;
     paint();
   }
+  /* Going back to the whole receipt is the one move here the fingers are not driving,
+     so it is the one that has to draw its own path. Snapped, it read as the picture
+     having been swapped for another; over a quarter of a second on the same settling
+     curve the sheets use, it reads as the picture being put back down.
+     The arithmetic is not repeated: fitIt() is asked where it would have landed, that
+     answer is kept, and the picture is walked there from where it actually is. */
+  let glide = null;
+  const stopGlide = () => { if(glide){ cancelAnimationFrame(glide); glide = null; } };
+  function glideToFit(){
+    const from = { s, x, y };
+    fitIt();
+    const to = { s, x, y };
+    ({ s, x, y } = from);                 // back where it really is, to travel from there
+    if(Math.abs(to.s - from.s) < 1e-4 && Math.abs(to.x - from.x) < .5 && Math.abs(to.y - from.y) < .5){
+      ({ s, x, y } = to); paint(); return;
+    }
+    stopGlide();
+    const t0 = performance.now(), ms = 260;
+    const step = now => {
+      const k = Math.min(1, (now - t0) / ms);
+      const e = 1 - Math.pow(1 - k, 3);
+      s = from.s + (to.s - from.s) * e;
+      x = from.x + (to.x - from.x) * e;
+      y = from.y + (to.y - from.y) * e;
+      paint();
+      glide = k < 1 ? requestAnimationFrame(step) : null;
+    };
+    glide = requestAnimationFrame(step);
+  }
   /* The shape can arrive after the frame does, for a receipt filed before any of this
      knew about pages. Re-sizing is re-fitting, and nothing else changes. */
-  S.resize = next => { fixed = next; fitIt(); };
+  S.resize = next => { stopGlide(); fixed = next; fitIt(); };
   /* A frame is ready the moment it exists; a photograph has to be waited for. */
   if(fixed) fitIt();
   else if(img.complete && img.naturalWidth) fitIt();
@@ -3383,6 +3708,8 @@ function wireReceiptZoom(view, img, fixed, toWidth){
 
   view.addEventListener("pointerdown", e => {
     e.preventDefault();
+    /* A finger arriving takes the picture off whatever it was doing on its own. */
+    stopGlide();
     pts.set(e.pointerId, rel(e));
     moved = 0;
     rebase();
@@ -3416,7 +3743,7 @@ function wireReceiptZoom(view, img, fixed, toWidth){
       base = null;
       if(moved < 8){
         const t = Date.now();
-        if(t - lastTap < 320){ fitIt(); lastTap = 0; } else lastTap = t;
+        if(t - lastTap < 320){ glideToFit(); lastTap = 0; } else lastTap = t;
       }
     }else rebase();
   };
@@ -3425,6 +3752,7 @@ function wireReceiptZoom(view, img, fixed, toWidth){
   /* A trackpad or a wheel, for whoever opens this on a desk. */
   view.addEventListener("wheel", e => {
     e.preventDefault();
+    stopGlide();
     const p = rel(e);
     zoomAt(bounded(s * (e.deltaY < 0 ? 1.12 : 1 / 1.12)), p.x, p.y, { s, x, y, px: p.x, py: p.y });
   }, { passive:false });
@@ -4462,6 +4790,32 @@ function wireMap(){
     svg.setAttribute("viewBox", `${view.x} ${view.y} ${view.w} ${viewH()}`);
     paintMarks();
   };
+  /* A pinch and a pan are the hand's, frame by frame, and want no help. A double tap is
+     not: it names a place and leaves the map to get there, and the map arriving without
+     having travelled is the one moment on this screen where you lose your bearings — the
+     ground you were reading is simply replaced by other ground at another size.
+     So the same viewBox the gestures move is walked to the answer over a quarter of a
+     second, and the full re-draw happens once it is standing still, exactly as it does
+     when fingers come off a pinch. */
+  let glide = null;
+  const stopGlide = () => { if(glide){ cancelAnimationFrame(glide); glide = null; } };
+  function glideView(to, ms = 260){
+    stopGlide();
+    const from = { x:view.x, y:view.y, w:view.w }, t0 = performance.now();
+    const step = now => {
+      const k = Math.min(1, (now - t0) / ms);
+      const e = 1 - Math.pow(1 - k, 3);
+      view.x = from.x + (to.x - from.x) * e;
+      view.y = from.y + (to.y - from.y) * e;
+      view.w = from.w + (to.w - from.w) * e;
+      applyView(); paintScale();
+      if(k < 1){ glide = requestAnimationFrame(step); return; }
+      glide = null;
+      Object.assign(view, to);
+      render();
+    };
+    glide = requestAnimationFrame(step);
+  }
 
   /* One gesture at a time, whatever number of fingers arrives. `mode` is what this
      touch turned out to be; it is decided on the first finger down and never changes
@@ -4523,6 +4877,9 @@ function wireMap(){
     /* The tray sits inside the plot, so it gets first refusal. */
     if(e.target.closest(".tray")) return;
     e.preventDefault();
+    /* A hand on the map ends any travelling it was doing by itself, and the re-draw that
+       travel owed is handed to the same settle every other gesture uses. */
+    if(glide){ stopGlide(); settle(); }
     plot.setPointerCapture(e.pointerId);
     pts.set(e.pointerId, { x:e.clientX, y:e.clientY });
 
@@ -4651,7 +5008,18 @@ function wireMap(){
       /* A tap on bare ground. Twice over is the way in now that the buttons are gone;
          spreading two fingers is the way back out. */
       const now = Date.now();
-      if(now - lastTap < 320){ lastTap = 0; const c = toFt(e); zoomAt(0.55, c.x, c.y); return render(); }
+      if(now - lastTap < 320){
+        lastTap = 0;
+        const c = toFt(e), from = { x:view.x, y:view.y, w:view.w };
+        /* zoomAt is asked where this tap lands — it is the one place that knows how a
+           zoom about a point works, and how one that reaches the far end comes to rest.
+           The view is then put back and walked there. */
+        zoomAt(0.55, c.x, c.y);
+        const to = { x:view.x, y:view.y, w:view.w };
+        Object.assign(view, from);
+        glideView(to);
+        return;
+      }
       lastTap = now;
     }
   };
