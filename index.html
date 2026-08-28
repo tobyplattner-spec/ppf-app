@@ -375,6 +375,12 @@ label{display:block;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-t
 /* Something of ours for the fingers to land on. A touch that lands on a frame belongs
    to the frame and never reaches us, so the frame is covered over. */
 .receiptview .grab{position:absolute;inset:0;background:transparent}
+/* The receipt sheet is one box and nothing else, so the box takes the height the panel
+   has left rather than a share of the screen worked out in advance. min-height:0 is what
+   lets a flex child be smaller than its contents — without it the box grows to the whole
+   document and pushes the footer off the bottom. */
+#rcBack .psbody{display:flex;flex-direction:column;padding-bottom:14px}
+#rcBack .receiptview{flex:1 1 auto;min-height:0}
 /* A PDF shows itself on the strip too, drawn by the same frame as in the viewer and
    scaled to the strip's width — the top of the page, which is the part that says which
    receipt this is, exactly as the photograph's strip does. */
@@ -3243,6 +3249,9 @@ function txnView(x){
   return sheet("tv", {
     title: k.label,
     sub: fmtDate(x.date),
+    /* Full height like the rest of them. This is the sheet a receipt opens from, so a
+       short one would hand a 530px panel to an 824px one and back again on every look. */
+    tall: true,
     stacked: true,
     body: facts + receipt + paid,
     foot
@@ -3273,13 +3282,14 @@ function receiptShowing(open){
    the box does it itself, over the picture alone.
 
    A PDF brings its own reader and is handed the box whole. */
-const rcBoxH = () => Math.max(260, Math.round(window.innerHeight * 0.54));
 function receiptPanel(r){
-  const box = `style="height:${rcBoxH()}px"`;
   return sheet("rc", {
+    /* Full height, like the sheet it opens from. A receipt is the thing you came to
+       look at, so it gets the screen rather than a window in the middle of one. */
+    tall: true,
     title: "Receipt",
     sub: `${esc(r.who || "")}${r.when ? " · " + fmtDate(r.when) : ""}`,
-    body: `<div class="receiptview" id="rcView" ${box}>
+    body: `<div class="receiptview" id="rcView">
         ${r.pdf
           ? `<iframe id="rcDoc" src="${esc(r.src || "")}${PDF_VIEW}" ${docAttr(r.doc)}
                      title="Receipt from ${esc(r.who || "")}" scrolling="no" tabindex="-1"></iframe>
