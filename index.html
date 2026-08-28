@@ -357,9 +357,21 @@ label{display:block;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-t
   position:absolute;left:0;top:0;transform-origin:0 0;display:block;
   max-width:none;pointer-events:none;
 }
-/* A PDF brings its own reader, so it is handed the box whole and nothing is wired to it. */
-.receiptview.doc{touch-action:auto;background:var(--card)}
-.receiptview iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:block}
+/* A PDF is moved by the same hand as a photograph. Its frame is given a page-sized
+   canvas to draw itself on and is then pushed about by the same transform, so pinching
+   in and out works on it exactly as it does on a picture — rather than being left to
+   the reader inside the frame, which opened zoomed in, would not go back out, and
+   passed every swipe it could not use on to the page behind.
+
+   The frame is rendered larger than the box so there is room to zoom into before it
+   softens, the way a photograph has its own pixels to spend. */
+.receiptview iframe{
+  position:absolute;left:0;top:0;transform-origin:0 0;border:0;display:block;
+  width:1000px;height:1400px;background:#fff;pointer-events:none;
+}
+/* Something of ours for the fingers to land on. A touch that lands on a frame belongs
+   to the frame and never reaches us, so the frame is covered over. */
+.receiptview .grab{position:absolute;inset:0;background:transparent}
 /* A PDF has no picture to show small, so the thumbnail says what it is instead. */
 .receiptthumb.doc{display:flex;align-items:center;justify-content:center;gap:10px;
   color:var(--graphite-60);background:var(--cream)}
@@ -3201,9 +3213,7 @@ function txnView(x){
       <span class="small muted">${rc ? "kept with this entry" : "none yet"}</span></div>
     ${rc
       ? receiptThumb("tvReceipt", rc, isPdfRef(x.receipt), "Tap to view", x.counterparty)
-      : `<button class="btn wide" id="tvAddReceipt" style="margin-top:10px">Add a Receipt</button>
-         <p class="small muted" style="margin:8px 0 0">A photograph is squeezed on the way in — small
-           enough to keep for good, and still large enough to read. A PDF out of Files is kept whole.</p>`}
+      : `<button class="btn wide" id="tvAddReceipt" style="margin-top:10px">Add a Receipt</button>`}
     ${receiptPicker("tvReceiptFile")}`;
 
   const paid = n ? `
@@ -3260,17 +3270,16 @@ function receiptPanel(r){
   return sheet("rc", {
     title: "Receipt",
     sub: `${esc(r.who || "")}${r.when ? " · " + fmtDate(r.when) : ""}`,
-    body: (r.pdf
-      ? `<div class="receiptview doc" id="rcView" ${box}>
-           <iframe id="rcDoc" src="${esc(r.src || "")}" title="Receipt from ${esc(r.who || "")}"></iframe>
-         </div>
-         <p class="small muted" style="margin:12px 0 0;text-align:center">A PDF, kept whole.</p>`
-      : `<div class="receiptview" id="rcView" ${box}>
-           <img id="rcImg" src="${esc(r.src || "")}" alt="Receipt from ${esc(r.who || "")}" draggable="false">
-         </div>
-         <p class="small muted" style="margin:12px 0 0;text-align:center">Pinch to zoom, drag to move.
-           Double-tap to fit it back.</p>`) +
-      receiptPicker("rcFile"),
+    body: `<div class="receiptview" id="rcView" ${box}>
+        ${r.pdf
+          ? `<iframe id="rcDoc" src="${esc(r.src || "")}#toolbar=0&navpanes=0&scrollbar=0&view=Fit"
+                     title="Receipt from ${esc(r.who || "")}" scrolling="no" tabindex="-1"></iframe>
+             <div class="grab"></div>`
+          : `<img id="rcImg" src="${esc(r.src || "")}" alt="Receipt from ${esc(r.who || "")}" draggable="false">`}
+      </div>
+      <p class="small muted" style="margin:12px 0 0;text-align:center">Pinch to zoom, drag to move.
+        Double-tap to fit it back.</p>
+      ${receiptPicker("rcFile")}`,
     foot: `<button class="btn danger" id="rcRemove">Remove</button>
       <div class="acts">
         <button class="btn" id="rcReplace">Replace</button>
@@ -3287,9 +3296,16 @@ function receiptPanel(r){
    picture is never allowed smaller than fits, and never dragged so far that the box
    shows anything but picture. */
 const RC_MAX_ZOOM = 10;
-function wireReceiptZoom(view, img){
+/* What a PDF's frame is rendered at. A photograph brings its own size; a frame has to be
+   given one, and this is a page shape with enough room in it to zoom into. */
+const RC_DOC = { w: 1000, h: 1400 };
+function wireReceiptZoom(view, img, fixed){
   let nw = 0, nh = 0, fit = 1, s = 1, x = 0, y = 0;
   const box = () => ({ W: view.clientWidth, H: view.clientHeight });
+  /* Nothing that starts inside this box scrolls anything, whatever it lands on and
+     however far it is dragged. touch-action says so already; this says so again for the
+     cases where the browser has made up its mind before asking. */
+  view.addEventListener("touchmove", e => e.preventDefault(), { passive:false });
 
   function clamp(){
     const b = box(), w = nw * s, h = nh * s;
@@ -3300,14 +3316,18 @@ function wireReceiptZoom(view, img){
   /* Fit it, and remember what fitting means — that is the floor every pinch stops at,
      so pinching out always lands back on the whole receipt rather than somewhere near it. */
   function fitIt(){
-    nw = img.naturalWidth; nh = img.naturalHeight;
+    nw = fixed ? fixed.w : img.naturalWidth;
+    nh = fixed ? fixed.h : img.naturalHeight;
     const b = box();
     if(!nw || !nh || !b.W || !b.H) return;
     fit = Math.min(b.W / nw, b.H / nh);
     s = fit; x = 0; y = 0;
     paint();
   }
-  if(img.complete && img.naturalWidth) fitIt(); else img.onload = fitIt;
+  /* A frame has its size the moment it exists; a photograph has to be waited for. */
+  if(fixed) fitIt();
+  else if(img.complete && img.naturalWidth) fitIt();
+  else img.onload = fitIt;
 
   /* Zooming about a point leaves whatever is under that point where it is — the whole
      reason a pinch feels like moving the paper rather than turning a dial. */
@@ -3411,7 +3431,9 @@ function wireReceiptPanel(r){
   };
   /* Painted onto the element rather than re-rendered: a render would replace the
      picture out from under the fingers moving it. */
+  const doc = $("#rcDoc");
   if(view && img) wireReceiptZoom(view, img);
+  else if(view && doc) wireReceiptZoom(view, doc, RC_DOC);
 }
 
 /* ---------- recording one ---------- */
