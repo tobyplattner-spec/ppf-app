@@ -680,13 +680,22 @@ body.mapview main{
   padding:0 var(--pad) 7px;font-size:11px;font-weight:700;letter-spacing:.06em;
   text-transform:uppercase;color:var(--graphite-60);
 }
-/* The rail scrolls, so a chip is simply as wide as its name — clipping one would cost
-   the very thing you are picking it by. */
+/* The rail scrolls, so a chip is simply as wide as it needs to be — clipping one would
+   cost the very thing you are picking it by. A name alone was not enough to plan with:
+   laying peonies out is a question about colour and about when they open, and neither
+   was on the rail, so every chip had to be opened to answer it. Now the chip carries
+   both — the face on the left, the words under the name — and the rail is the plan. */
 .chip{
-  flex:0 0 auto;border:1px solid var(--graphite-30);background:#fff;border-radius:20px;
-  padding:0 14px;min-height:38px;display:inline-flex;align-items:center;font-size:14px;
-  white-space:nowrap;color:var(--graphite);
+  flex:0 0 auto;border:1px solid var(--graphite-30);background:#fff;border-radius:22px;
+  padding:5px 15px 5px 5px;gap:9px;min-height:44px;display:inline-flex;align-items:center;
+  white-space:nowrap;color:var(--graphite);text-align:left;
 }
+.chip .ctext{display:flex;flex-direction:column;gap:1px;min-width:0}
+.chip .cname{font-size:14px;line-height:1.2}
+/* Two facts at a size that is meant to be scanned rather than read one at a time. */
+.chip .cfacts{font-size:11px;line-height:1.2;color:var(--graphite-60);display:flex;align-items:center}
+.chip .strip{margin-right:6px}
+.chip .strip i{width:3.5px;height:10px}
 .chip.carrying{opacity:.3}
 /* The rail hands the browser nothing: every gesture on it is decided here. Left to
    pan-x, a drag with any sideways lean in it was liable to be claimed as a scroll
@@ -4627,6 +4636,37 @@ function unplaceAsk(id){
     </div></div></div>`;
 }
 
+/* One peony waiting for a square, as the rail shows it. What a layout is actually
+   decided by is colour and bloom season, and neither used to be here: the chip said a
+   name, and the only way to remember that Coral Charm is coral and opens early was to
+   open it — which closes the map, loses the rail's scroll, and answers about one peony
+   when the question was about the twenty next to it.
+
+   So the chip carries both, and carries each in the form that reads fastest. The face
+   is the same circle the collection uses — the photograph of your own bloom once there
+   is one, and until then a drawing in the colour family — because a colour is quicker
+   seen than read. The words underneath are the precision a 30px circle cannot hold:
+   "Blush pink" is not merely Pink, and Mid-Late is not Mid. The strip in front of them
+   is the season as a position rather than a name, so a rail of chips can be read down
+   in one pass for what opens with what.
+
+   Nothing about picking one up changes: the whole chip is still the target, and the
+   drag still reads `data-place` off it however deep in it the finger landed. */
+function trayChip(p){
+  const v = cultivar(p.cultivarId);
+  const name = v.name || "Plant " + p.id;
+  const facts = [v.bloomSeason, v.color].filter(Boolean).join(" · ");
+  return `<button class="chip" data-place="${p.id}" aria-label="${
+      esc(name + (facts ? " — " + facts : ""))}">
+    ${bloomFace(v, 30)}
+    <span class="ctext">
+      <span class="cname">${esc(name)}</span>
+      <span class="cfacts">${v.bloomSeason ? seasonStrip(v.bloomSeason) : ""}${
+        esc(facts) || "nothing recorded yet"}</span>
+    </span>
+  </button>`;
+}
+
 function renderMap(app){
   const P = DB.property;
   if(!view) homeView();
@@ -4649,8 +4689,7 @@ function renderMap(app){
   const tray = un.length
     ? `<div class="tray" id="tray">
         <div class="tlabel"><span>To place — tap to open, drag onto the map</span><span class="num">${un.length}</span></div>
-        <div class="chips">${un.map(p => `<button class="chip" data-place="${p.id}">${
-          esc(cultivar(p.cultivarId).name || "Plant " + p.id)}</button>`).join("")}</div>
+        <div class="chips">${un.map(trayChip).join("")}</div>
       </div>`
     : "";
 
