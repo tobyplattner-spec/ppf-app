@@ -1037,6 +1037,15 @@ function wireSheetGestures(){
    so the sheet only really earns its place on a phone — which is where it lives. */
 let dataOpen = false;
 
+/* Which copy of the app this phone is actually running. It was printed on the way-in
+   screen only, which is the one screen you stop seeing the moment you are connected — so
+   the number was there for exactly the people who never needed it, and missing for anyone
+   asking the only question it answers: has the change I was promised arrived on my phone
+   yet? It lives here now, beside the other facts about what this device is holding. */
+function buildRow(){
+  return `<div class="kvrow"><dt>App</dt><dd>Build <span class="num">${esc(Store.build)}</span></dd></div>`;
+}
+
 function dataSheet(){
   const mode = Store.mode;
   if(mode === "github") return repoSheet();
@@ -1059,11 +1068,12 @@ function dataSheet(){
     <div class="kvrow"><dt>Cultivars</dt><dd class="num">${DB.cultivars.length}</dd></div>
     <div class="kvrow"><dt>Bloom days</dt><dd class="num">${bloomDays().length}</dd></div>
     <div class="kvrow"><dt>Transactions</dt><dd class="num">${DB.transactions.length}</dd></div>` : "";
+  const build = buildRow();
 
   const body = `
     ${bookPicker()}
     ${where}
-    <div class="kvlist section">${state}${counts}</div>
+    <div class="kvlist section">${state}${counts}${build}</div>
     <button class="btn primary wide section" id="dsSend">Send Back</button>
     <p class="small muted" style="margin:10px 0 0">iOS opens the share sheet: pick Drive or
       Files and save over the <strong>${esc(dataFile())}</strong> you keep there. Photographs and
@@ -1096,6 +1106,7 @@ function repoSheet(){
     <div class="kvrow"><dt>Cultivars</dt><dd class="num">${DB.cultivars.length}</dd></div>
     <div class="kvrow"><dt>Bloom days</dt><dd class="num">${bloomDays().length}</dd></div>
     <div class="kvrow"><dt>Transactions</dt><dd class="num">${DB.transactions.length}</dd></div>` : "";
+  const build = buildRow();
 
   const body = `
     ${bookPicker()}
@@ -1110,6 +1121,7 @@ function repoSheet(){
         : "up to date"}</dd></div>
       ${Store.lastSync ? `<div class="kvrow"><dt>Last agreed</dt><dd>${esc(fmtWhen(Store.lastSync))}</dd></div>` : ""}
       ${counts}
+      ${build}
     </div>
     ${owed ? `<button class="btn primary wide section" id="dsSync">Send What Is Waiting</button>
       <p class="small muted" style="margin:10px 0 0">Everything you have done is safe on this phone.
@@ -5486,8 +5498,56 @@ document.addEventListener("visibilitychange", () => { if(!document.hidden) catch
 window.addEventListener("focus", catchUp);
 window.addEventListener("online", catchUp);
 
-if("serviceWorker" in navigator)
-  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+/* ---------- taking a new copy of the app ---------- */
+/* Registering the worker was the whole of this, and it left a gap that took three
+   deployments to show itself: a change would go out, the phone would go on running the
+   copy it had, and there was no way to tell from inside the app that it was behind.
+
+   Two separate things were missing, and both are needed.
+
+   A phone that is switched back to rather than started fresh never asks for anything. It
+   is the same page it was, still running the JavaScript it loaded on whatever morning it
+   last actually opened — no navigation, so no fetch, so the worker never even looks to
+   see whether a new one exists. On iOS a home-screen app can sit like that for days. So
+   the update is asked for by hand, every time the app comes back to the front.
+
+   And a worker that does find a new copy does not put it on the screen. It installs,
+   skips waiting, claims the page — and the page carries on running the old code, because
+   claiming a client is not reloading it. So the reload is ours to do, once the new worker
+   is actually in charge.
+
+   The guard matters: the first worker ever to take charge of a page also fires this, and
+   reloading a phone the first time it is ever opened would be a strange greeting. Only a
+   page that was already being controlled has anything to replace — so the flag is turned
+   over by that first claim rather than read once and kept, which would have made a page
+   that installed the worker deaf to every replacement for the rest of its life. */
+if("serviceWorker" in navigator){
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").then(reg => {
+      const ask = () => { if(!document.hidden) reg.update().catch(() => {}); };
+      ask();
+      document.addEventListener("visibilitychange", ask);
+      window.addEventListener("focus", ask);
+    }).catch(() => {});
+  });
+
+  let controlled = !!navigator.serviceWorker.controller, owed = false;
+  /* Not while something is being typed into, and not while an edit is still on its way to
+     the file. A reload loses neither the records nor what is owed — both are on the shelf
+     below the seam — but it does lose a half-filled form, and a form emptying itself is
+     the worst way to learn that a new version arrived. It waits for a quiet moment, and
+     the app comes back to the front is exactly that. */
+  const quiet = () => editing === null && !dirty && !dataOpen;
+  const takeIt = () => { if(owed && quiet()) location.reload(); };
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    /* The first worker to take charge replaces nothing — but the page is controlled from
+       here on, so the next one to arrive is a replacement and does. */
+    if(!controlled){ controlled = true; return; }
+    owed = true;
+    takeIt();
+  });
+  document.addEventListener("visibilitychange", () => { if(!document.hidden) takeIt(); });
+}
 
 (async function boot(){
   try{
