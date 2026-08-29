@@ -631,6 +631,17 @@ td.r,th.r{text-align:right}
 .kvrow:last-child{border-bottom:none}
 .kvrow dt{color:var(--graphite-60);font-size:13px;flex:none;margin:0}
 .kvrow dd{margin:0;text-align:right;min-width:0}
+/* The one row on a plant's sheet that is not a key and a value: the cultivar itself,
+   face and season and all. It is centred rather than sat on a baseline, because half
+   of what it holds is a circle and a circle has no baseline to sit on. */
+.cvrow{align-items:center}
+.cvcell{display:inline-flex;align-items:center;gap:9px}
+.cvcell .cvtext{display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:0}
+.cvcell .cvname{line-height:1.25}
+/* Discreet on purpose: it is here to be caught by the eye on the way past, not read. */
+.cvcell .cvline{font-size:12px;line-height:1.25;color:var(--graphite-60);
+                display:flex;align-items:center;white-space:nowrap}
+.cvcell .strip{margin-right:6px}
 
 /* ---------- the map ---------- */
 body.mapview{overflow:hidden;height:100vh;display:flex;flex-direction:column}
@@ -2744,6 +2755,30 @@ function unplacePlant(p){
   markDirty();
 }
 
+/* A plant's sheet used to name its cultivar and stop there, which is the one fact about
+   a cultivar you already knew — you tapped the peony because you were looking at it. What
+   you actually want at that moment is what it will do: what colour it opens and when. Both
+   were a screen away, in the collection, and going there closed the map and lost the plan.
+
+   So the row that was already about the cultivar carries the cultivar. The face is the
+   collection's own circle — a photograph of your own bloom once there is one, a drawing in
+   the colour family until then — and under it one quiet line for the season and the form.
+   Colour is left to the face rather than spelled out beside it, which is the same division
+   the rail at the foot of the map makes, so the two places a peony is met agree.
+
+   It is the same row wherever the sheet is opened from. A plant that looked one way off the
+   map and another way off its own page would be two plants as far as the eye is concerned. */
+function cultivarKv(v){
+  const line = [v.bloomSeason, v.bloomType].filter(Boolean).join(" · ");
+  return `<div class="kvrow cvrow"><dt>Cultivar</dt><dd><span class="cvcell">
+    ${bloomFace(v, 34)}
+    <span class="cvtext">
+      <span class="cvname">${esc(v.name) || "Untitled cultivar"}</span>
+      <span class="cvline">${seasonStrip(v.bloomSeason)}${esc(line) || "&mdash;"}</span>
+    </span>
+  </span></dd></div>`;
+}
+
 function plantSheet(p){
   if(dividing(p)) return dividePanel(p);       // the same sheet, asking a different question
   const v = cultivar(p.cultivarId);
@@ -2794,7 +2829,7 @@ function plantSheet(p){
     <div class="fieldrow">${field("Notes", F.area("p", p.id, "notes", p.notes))}</div>
     <div class="kvlist" style="margin-top:4px">${kv("Position", where, true)}</div>`
   : `<div class="kvlist">
-      ${kv("Cultivar", v.name)}
+      ${cultivarKv(v)}
       ${kv("Source", p.source)}
       ${kv("Acquired", p.acquiredDate ? fmtDate(p.acquiredDate) : null)}
       ${kv("Planted", p.plantedDate ? fmtDate(p.plantedDate) : null)}
