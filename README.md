@@ -126,6 +126,28 @@ decays by a proportion of itself per frame, so the roll is the same length at 12
 60; and a roll that reaches an edge stops there rather than spending the rest of its speed
 pressed against it.
 
+## The screen before the screen
+
+The app cannot draw anything until it has asked the shelf what it is holding, and on a
+phone that is most of a second. The opening used to be the graphite bar with nothing at all
+underneath it, and then, out of nowhere, the whole app. So the first paint is the mark
+instead — full bleed, on the graphite the bar already wears, opening and breathing while
+the records are found, and gone the moment there is something true to put on the screen.
+
+It is written into `index.html` rather than built by script, because the whole point of it
+is to be on the glass before a line of the app has been read, let alone run. Graphite
+rather than cream for the same reason the bar is graphite: the status bar's clock is drawn
+in white over whatever the page puts behind it, and a cream launch screen would swallow it
+for as long as it was up. It is held to a floor measured from the moment the page began —
+taken off the instant a phone with the records already on it is ready, it is a flash rather
+than an opening — and it comes off on a timer as well as on the fade, because a launch
+screen there is no way past is worse than never having had one.
+
+The flower itself is written once now, as an SVG symbol at the top of the body. The bar
+wears it, the Bloom tab borrows it, the way in puts it up large, and the launch screen
+holds it: four places, one path, and nothing to keep in step. It carries no colour of its
+own, so each of the four says what it wants.
+
 ## Working on it
 
     node test-seam.js

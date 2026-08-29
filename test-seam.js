@@ -329,6 +329,29 @@ ok(/img\.style\.width = fixed\.w/.test(rz2),
    "the frame is made that size too, or the fitting and the element would disagree");
 ok(/receiptDoc/.test(app), "the shape is kept on the record, so a strip has it without asking");
 
+
+console.log("\n-- the screen before the screen (source checks) --");
+ok(/<div id="launch"/.test(app), "the app opens on a screen of its own rather than an empty one");
+ok(app.indexOf('<div id="launch"') < app.indexOf('<div class="topbar">'),
+   "written into the markup ahead of the bar, so it is on the glass before a line of the app has run");
+ok(/#launch\{[^}]*position:fixed;inset:0/.test(app), "and it covers the whole of the glass, bar and all");
+ok(/#launch\{[^}]*background:var\(--graphite\)/.test(app),
+   "in graphite, so the status bar's white clock is still legible while it is up");
+const ldn = app.slice(app.indexOf("function launchDone("), app.indexOf("setTimeout(launchDone, 8000)"));
+ok(/LAUNCH_LEAST - shown/.test(ldn), "it is held to a floor measured from when the page began, not from when it is ready");
+ok(/setTimeout\(off, 700\)/.test(ldn), "and taken away on a timer as well as on transitionend, which nobody promises");
+ok(/setTimeout\(launchDone, 8000\)/.test(app), "and comes off whatever happens above it, because there is no way past it");
+const bootBody = app.slice(app.indexOf("(async function boot(){"));
+ok(bootBody.indexOf("render();") < bootBody.indexOf("launchDone();"),
+   "nothing is taken away until there is a real screen underneath it");
+/* One flower, in three places, from one path. */
+ok((app.match(/M640\.34 79\.04/g) || []).length === 1, "the mark is drawn once");
+ok(/<symbol id="peony"/.test(app), "as a symbol of its own");
+ok((app.match(/<use href="#peony"\/>/g) || []).length === 4,
+   "and the bar, the Bloom tab, the way in and the launch screen all point at that one");
+ok(!/\.replace\('fill="#FDF9F7"'/.test(app),
+   "the path names no colour, so nothing has to swap one out of it to say what it wants");
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
 })().catch(e => { console.error("HARNESS ERROR:", e); process.exit(2); });
