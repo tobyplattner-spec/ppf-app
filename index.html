@@ -684,18 +684,21 @@ body.mapview main{
    cost the very thing you are picking it by. A name alone was not enough to plan with:
    laying peonies out is a question about colour and about when they open, and neither
    was on the rail, so every chip had to be opened to answer it. Now the chip carries
-   both — the face on the left, the words under the name — and the rail is the plan. */
+   both — the face on the left, the season under the name — and the rail is the plan.
+   Width is the currency here: a chip a third wider is a peony fewer on the screen, and
+   what you are comparing is never one chip. So the face is left to say the colour on its
+   own rather than being followed by words that say it again. */
 .chip{
   flex:0 0 auto;border:1px solid var(--graphite-30);background:#fff;border-radius:22px;
-  padding:5px 15px 5px 5px;gap:9px;min-height:44px;display:inline-flex;align-items:center;
+  padding:5px 12px 5px 5px;gap:7px;min-height:44px;display:inline-flex;align-items:center;
   white-space:nowrap;color:var(--graphite);text-align:left;
 }
 .chip .ctext{display:flex;flex-direction:column;gap:1px;min-width:0}
 .chip .cname{font-size:14px;line-height:1.2}
 /* Two facts at a size that is meant to be scanned rather than read one at a time. */
 .chip .cfacts{font-size:11px;line-height:1.2;color:var(--graphite-60);display:flex;align-items:center}
-.chip .strip{margin-right:6px}
-.chip .strip i{width:3.5px;height:10px}
+.chip .strip{margin-right:5px;gap:1.5px}
+.chip .strip i{width:3px;height:10px}
 .chip.carrying{opacity:.3}
 /* The rail hands the browser nothing: every gesture on it is decided here. Left to
    pan-x, a drag with any sideways lean in it was liable to be claimed as a scroll
@@ -4667,27 +4670,31 @@ function trayOrder(un){
    open it — which closes the map, loses the rail's scroll, and answers about one peony
    when the question was about the twenty next to it.
 
-   So the chip carries both, and carries each in the form that reads fastest. The face
-   is the same circle the collection uses — the photograph of your own bloom once there
-   is one, and until then a drawing in the colour family — because a colour is quicker
-   seen than read. The words underneath are the precision a 30px circle cannot hold:
-   "Blush pink" is not merely Pink, and Mid-Late is not Mid. The strip in front of them
-   is the season as a position rather than a name, so a rail of chips can be read down
-   in one pass for what opens with what.
+   Each fact is carried by whichever of the two is better at it, and by only one of them,
+   because the rail is read sideways and every word spent is a peony pushed off the edge
+   of the screen. Colour is the face's: the same circle the collection uses — your own
+   bloom once there is a photograph of it, and until then a drawing in the colour family.
+   A colour shown is read faster than a colour spelled, and it costs 26px rather than the
+   150 that "Mid-Late · Blush pink" was costing. Season is the words': the strip puts it
+   in the year at a glance, and the name behind the strip is the precision the strip
+   cannot hold, because Mid-Late is not Mid and a bed planned a week out needs to know
+   which. The exact wording of a colour is one tap away in the plant's own sheet, which
+   is the right place for a fact you want once rather than sixteen times.
 
    Nothing about picking one up changes: the whole chip is still the target, and the
    drag still reads `data-place` off it however deep in it the finger landed. */
 function trayChip(p){
   const v = cultivar(p.cultivarId);
   const name = v.name || "Plant " + p.id;
-  const facts = [v.bloomSeason, v.color].filter(Boolean).join(" · ");
+  /* Said rather than shown, for anything reading the chip aloud: the face is a drawing
+     and marked aria-hidden, so the colour would otherwise reach nobody. */
+  const said = [v.bloomSeason, v.color].filter(Boolean).join(" · ");
   return `<button class="chip" data-place="${p.id}" aria-label="${
-      esc(name + (facts ? " — " + facts : ""))}">
-    ${bloomFace(v, 30)}
+      esc(name + (said ? " — " + said : ""))}">
+    ${bloomFace(v, 26)}
     <span class="ctext">
       <span class="cname">${esc(name)}</span>
-      <span class="cfacts">${v.bloomSeason ? seasonStrip(v.bloomSeason) : ""}${
-        esc(facts) || "nothing recorded yet"}</span>
+      <span class="cfacts">${seasonStrip(v.bloomSeason)}${esc(v.bloomSeason) || "—"}</span>
     </span>
   </button>`;
 }
