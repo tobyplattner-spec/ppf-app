@@ -4636,6 +4636,31 @@ function unplaceAsk(id){
     </div></div></div>`;
 }
 
+/* The rail used to read in the order the plants happen to sit in the file, which is the
+   order they were bought in — and buying order is nobody's plan. It reads in bloom order
+   now: earliest at the left, latest at the right, and within one week of the season the
+   colours grouped, so a bed comes off the rail in the order it will actually open and
+   the two peonies you are deciding between are next to each other rather than eleven
+   apart. Scroll it and the lit bar of the strip marches rightward, which is the rail
+   saying what it is doing without spending a word of label on it.
+
+   A season nobody has recorded yet cannot be put in that line, so it goes to the end
+   rather than to the front, where an empty value would otherwise sort. Same for a
+   colour: what is unknown waits at the back of its own season. Ties fall to the name and
+   then to the plant, so the three crowns of one cultivar always stand together and the
+   rail never reshuffles under a re-draw. */
+const seasonRank = v => { const i = SEASONS.indexOf(v.bloomSeason); return i < 0 ? SEASONS.length : i; };
+const colorRank  = v => { const i = FAMILY_ORDER.indexOf(families(v.color)[0]);
+                          return i < 0 ? FAMILY_ORDER.length : i; };
+function trayOrder(un){
+  return un.map(p => ({ p, v: cultivar(p.cultivarId) }))
+    .sort((a, b) => seasonRank(a.v) - seasonRank(b.v)
+                 || colorRank(a.v)  - colorRank(b.v)
+                 || String(a.v.name || "").localeCompare(String(b.v.name || ""))
+                 || a.p.id - b.p.id)
+    .map(x => x.p);
+}
+
 /* One peony waiting for a square, as the rail shows it. What a layout is actually
    decided by is colour and bloom season, and neither used to be here: the chip said a
    name, and the only way to remember that Coral Charm is coral and opens early was to
@@ -4689,7 +4714,7 @@ function renderMap(app){
   const tray = un.length
     ? `<div class="tray" id="tray">
         <div class="tlabel"><span>To place — tap to open, drag onto the map</span><span class="num">${un.length}</span></div>
-        <div class="chips">${un.map(trayChip).join("")}</div>
+        <div class="chips">${trayOrder(un).map(trayChip).join("")}</div>
       </div>`
     : "";
 
