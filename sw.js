@@ -11,7 +11,7 @@
 
    Everything named here has to exist: addAll is all-or-nothing, and one missing file
    fails the install and leaves the device with no shell at all rather than an old one. */
-const CACHE = "ppf-v19";
+const CACHE = "ppf-v20";
 const SHELL = [
   "./", "./index.html", "./m.html", "./store.js",
   "./manifest.webmanifest",

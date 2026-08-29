@@ -114,6 +114,18 @@ changing under your eye, `--t-sheet` for something arriving or leaving, and `--e
 and `--ease-in` for entering and leaving, which are deliberately not the same curve. A
 phone set to keep still is obeyed everywhere at once, in one media query.
 
+Two gestures are outside all of that, because they are the hand's own and not the
+screen's: the map under a finger, and the rail of peonies still to place. Both take
+`touch-action:none` — each has to decide what a finger means, a pan or a peony, a scroll
+or a peony being lifted, before it can let anything through — and a browser that has
+already claimed a gesture will not give it back. So both give up the browser's momentum
+along with it, and both roll on after the finger themselves instead. A throw is read over
+the last ninety milliseconds rather than the last move, so a finger that slid and stopped
+before lifting has thrown nothing and the thing stays exactly where it was put; the speed
+decays by a proportion of itself per frame, so the roll is the same length at 120Hz as at
+60; and a roll that reaches an edge stops there rather than spending the rest of its speed
+pressed against it.
+
 ## Working on it
 
     node test-seam.js

@@ -4804,6 +4804,79 @@ function paintScale(){
   bar.style.width = s.px + "px";
   txt.textContent = s.len + " ft";
 }
+/* ---------- a gesture that carries on after the finger ---------- */
+/* A swipe that stops dead the instant you let go is the one thing on a phone that reads
+   as broken rather than as plain. Everywhere else on this screen the map is a sheet of
+   paper under the hand, and paper does not stop because your hand did.
+
+   Neither the map nor the rail can borrow the browser's own momentum for this. Both take
+   touch-action:none, and both had to: each has to decide what a finger means — a pan or
+   a peony, a scroll or a peony being lifted — before it can let anything through, and a
+   browser that has already claimed the gesture cannot be asked to give it back. So the
+   roll is ours to do, in the two places that gave the browser up.
+
+   Two rules are what make it read as weight rather than as an animation. */
+
+/* How far back a throw is read: about five frames. Measured over the last few moves
+   rather than the last one, because the last one is noise — and because a finger that
+   slid and then came to rest before lifting has thrown nothing, which is exactly how you
+   put a thing down in a chosen place. Stop before you let go and it stays where you left
+   it; that is not a failure to coast, it is the other half of the same gesture. */
+const FLICK_MS = 90;
+/* Speed kept per sixtieth of a second. Applied as a proportion of what is left rather
+   than a fixed subtraction, so the roll is the same length on a 120Hz screen as on a
+   60Hz one, and comes to rest rather than creeping or reversing. */
+const ROLL_DECAY = 0.94;
+/* Under a twentieth of a pixel per millisecond is under a pixel a frame: arrived. */
+const ROLL_STOP = 0.05;
+/* No flick is worth more than this. A thumb can produce a spike of twenty pixels a
+   millisecond against a sticky sample, and the map should not answer it by leaving. */
+const MAX_THROW = 4;
+
+/* The last few positions of a finger, and what they come to. */
+function thrower(){
+  let hist = [];
+  return {
+    reset(){ hist = []; },
+    at(x, y){ hist.push({ x, y, t: performance.now() }); if(hist.length > 6) hist.shift(); },
+    /* Screen pixels per millisecond. Nothing inside the window is a finger that had
+       already stopped, and a finger that had stopped throws nothing. */
+    thrown(){
+      const now = performance.now(), recent = hist.filter(s => now - s.t <= FLICK_MS);
+      if(recent.length < 2) return { vx:0, vy:0 };
+      const a = recent[0], b = recent[recent.length - 1], dt = b.t - a.t;
+      if(dt <= 0) return { vx:0, vy:0 };
+      const cap = v => Math.max(-MAX_THROW, Math.min(MAX_THROW, v));
+      return { vx: cap((b.x - a.x) / dt), vy: cap((b.y - a.y) / dt) };
+    },
+  };
+}
+
+/* Rolls a throw on after the finger has gone, and hands each frame's travel to whoever
+   owns the thing being moved. `step` moves it and answers whether it actually went
+   anywhere, so a roll that reaches an edge stops against it rather than spending the
+   rest of its speed there. `hold` is given the frame in flight and null when there is
+   none, so an owner cancels a roll exactly the way it cancels everything else this
+   screen moves by itself. `done` is what the gesture still owed — and it is called
+   whether the roll ran or was too slow to bother, so the owing is settled either way. */
+function roll({ vx = 0, vy = 0, step, hold, done }){
+  const settled = () => { hold(null); if(done) done(); };
+  if(Math.hypot(vx, vy) < ROLL_STOP){ settled(); return false; }
+  let last = performance.now();
+  const frame = now => {
+    /* A tab that was put away and brought back owes one frame, not the minute it slept. */
+    const dt = Math.min(48, Math.max(1, now - last)); last = now;
+    const k = Math.pow(ROLL_DECAY, dt / (1000/60));
+    vx *= k; vy *= k;
+    if(step(vx * dt, vy * dt) && Math.hypot(vx, vy) >= ROLL_STOP){
+      hold(requestAnimationFrame(frame)); return;
+    }
+    settled();
+  };
+  hold(requestAnimationFrame(frame));
+  return true;
+}
+
 const setDragging = on => document.body.classList.toggle("dragging", on);
 
 function wireMap(){
@@ -4888,11 +4961,36 @@ function wireMap(){
     glide = requestAnimationFrame(step);
   }
 
+  /* The same slot, because it is the same fact about the screen: the map is travelling
+     without a hand on it. So a finger arriving stops a roll the way it already stops a
+     glide, and nothing new has to remember to. Where the two differ is the ending — a
+     glide is going somewhere and lands there, a roll is only spending what it was given
+     and stops wherever that runs out, or at an edge, whichever comes first. */
+  function coastView(vx, vy){
+    const ftPerPx = view.w / plot.getBoundingClientRect().width;
+    return roll({
+      vx, vy,
+      hold: id => { glide = id; },
+      done: settle,                       // the re-draw the pan owed, once it is still
+      step: (dx, dy) => {
+        /* A re-draw has replaced the map under us; this SVG moves nothing any more. */
+        if(!svg.isConnected) return false;
+        const x0 = view.x, y0 = view.y;
+        view.x -= dx * ftPerPx; view.y -= dy * ftPerPx;
+        clampView(); applyView();
+        /* Pinned against the edge in both directions: there is nowhere left to go, and
+           a roll that keeps decaying into a wall is a second of nothing happening. */
+        return view.x !== x0 || view.y !== y0;
+      },
+    });
+  }
+
   /* One gesture at a time, whatever number of fingers arrives. `mode` is what this
      touch turned out to be; it is decided on the first finger down and never changes
      under you mid-gesture. */
   const pts = new Map();
   let mode = null, pan = null, pinch = null, drag = null;
+  const panThrow = thrower();
   let downPin = null, down = null, moved = false, lastTap = 0;
   /* How far a finger has to travel before it is moving a peony rather than tapping
      one. Below this a graze across the map leaves everything where it was. */
@@ -4980,6 +5078,7 @@ function wireMap(){
         return;
       }
       mode = "pan";
+      panThrow.reset();
       pan = { x0:view.x, y0:view.y, sx:e.clientX, sy:e.clientY,
               ftPerPx: view.w / plot.getBoundingClientRect().width };
     }else if(pts.size === 2){
@@ -5013,6 +5112,7 @@ function wireMap(){
       const held = byId.get(Number(downPin.dataset.pin));
       if(held && !movable(held)){
         mode = "pan"; moved = true;
+        panThrow.reset();
         pan = { x0:view.x, y0:view.y, sx:down.x, sy:down.y,
                 ftPerPx: view.w / plot.getBoundingClientRect().width };
         return;
@@ -5040,6 +5140,7 @@ function wireMap(){
     if(mode === "pan"){
       if(!moved) return;
       userMoved = true;
+      panThrow.at(e.clientX, e.clientY);
       view.x = pan.x0 - (e.clientX - pan.sx) * pan.ftPerPx;
       view.y = pan.y0 - (e.clientY - pan.sy) * pan.ftPerPx;
       clampView(); applyView();
@@ -5061,6 +5162,7 @@ function wireMap(){
         /* One finger left: carry on as a pan from wherever it is now. */
         const [only] = [...pts.values()];
         mode = "pan"; moved = true;
+        panThrow.reset();
         pan = { x0:view.x, y0:view.y, sx:only.x, sy:only.y,
                 ftPerPx: view.w / plot.getBoundingClientRect().width };
         return;
@@ -5075,7 +5177,11 @@ function wireMap(){
     }
     if(mode === "pan" && pts.size === 0){
       mode = null;
-      if(moved){ settle(); return; }
+      /* The map leaves with whatever the hand was giving it, and settles when it comes
+         to rest rather than the instant the finger goes — a roll owes the same re-draw
+         the pan did, only later. A hand that stopped before it lifted throws nothing,
+         and that path settles at once, exactly as it always did. */
+      if(moved){ const t = panThrow.thrown(); coastView(t.vx, t.vy); return; }
       /* A tap on bare ground. Twice over is the way in now that the buttons are gone;
          spreading two fingers is the way back out. */
       const now = Date.now();
@@ -5205,10 +5311,18 @@ function wireMap(){
   if(rail){
     const LIFT_UP = 8, RAIL_SIDE = 10;
     let from = null;
+    /* The rail rolls on after the finger for the same reason the map does, and by the
+       same arithmetic — it gave the browser's own momentum up when it took
+       touch-action:none, which it had to do to tell a scroll from a peony coming out. */
+    const railThrow = thrower();
+    let railRoll = null;
+    const stopRailRoll = () => { if(railRoll){ cancelAnimationFrame(railRoll); railRoll = null; } };
     rail.addEventListener("pointerdown", e => {
+      stopRailRoll();                    // a hand on the rail is the rail stopping
       const chip = e.target.closest("[data-place]");
       from = { x:e.clientX, y:e.clientY, id:e.pointerId, chip,
                scroll:rail.scrollLeft, how:null };
+      railThrow.reset();
       rail.setPointerCapture(e.pointerId);
     });
     rail.addEventListener("pointermove", e => {
@@ -5220,7 +5334,7 @@ function wireMap(){
         else if(Math.abs(dx) >= RAIL_SIDE) from.how = "rail";
       }
       if(from.how === "lift"){ e.preventDefault(); startCarry(from.chip, e); }
-      else if(from.how === "rail") rail.scrollLeft = from.scroll - dx;
+      else if(from.how === "rail"){ railThrow.at(e.clientX, e.clientY); rail.scrollLeft = from.scroll - dx; }
     });
     rail.addEventListener("pointerup", e => {
       if(carry && e.pointerId === carry.id){ endCarry(true); from = null; return; }
@@ -5232,11 +5346,25 @@ function wireMap(){
         openPlant = id;
         return render();
       }
+      /* Thrown along the rail: it keeps going, and stops at whichever end it reaches.
+         The browser clamps scrollLeft for us, so the end is found by asking whether the
+         last frame moved it at all rather than by working out where the end is. */
+      if(from && e.pointerId === from.id && from.how === "rail"){
+        const t = railThrow.thrown();
+        roll({ vx: t.vx,
+               hold: id => { railRoll = id; },
+               step: dx => {
+                 if(!rail.isConnected) return false;
+                 const was = rail.scrollLeft;
+                 rail.scrollLeft = was - dx;
+                 return rail.scrollLeft !== was;
+               } });
+      }
       from = null;
     });
     rail.addEventListener("pointercancel", e => {
       if(carry && e.pointerId === carry.id) endCarry(false);
-      from = null;
+      from = null;                       // a cancelled gesture threw nothing
     });
   }
 }
